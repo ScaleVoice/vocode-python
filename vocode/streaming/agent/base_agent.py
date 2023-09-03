@@ -95,6 +95,7 @@ class AgentResponseMessage(AgentResponse, type=AgentResponseType.MESSAGE.value):
     is_interruptible: bool = True
 
 
+
 class AgentResponseStop(AgentResponse, type=AgentResponseType.STOP.value):
     pass
 

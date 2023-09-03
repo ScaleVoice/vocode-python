@@ -425,6 +425,7 @@ class StreamingConversation(Generic[OutputDeviceType]):
             conversation_id: Optional[str] = None,
             per_chunk_allowance_seconds: float = PER_CHUNK_ALLOWANCE_SECONDS,
             events_manager: Optional[EventsManager] = None,
+            summarizer: Optional[BaseAgent] = None,
             logger: Optional[logging.Logger] = None,
     ):
         self.id = conversation_id or create_conversation_id()

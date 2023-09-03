@@ -7,8 +7,7 @@ import random
 import threading
 import time
 import typing
-from typing import Any, Awaitable, Callable, Generic, Optional, Tuple, TypeVar, cast
-
+from typing import Any, Awaitable, Callable, Generic, Optional, Tuple, TypeVar
 
 from vocode.streaming.action.worker import ActionsWorker
 from vocode.streaming.agent.base_agent import (
@@ -17,7 +16,6 @@ from vocode.streaming.agent.base_agent import (
     AgentResponseFillerAudio,
     AgentResponseMessage,
     AgentResponseStop,
-    AgentResponseType,
     BaseAgent,
     TranscriptionAgentInput,
 )
@@ -30,14 +28,13 @@ from vocode.streaming.constants import (
     PER_CHUNK_ALLOWANCE_SECONDS,
     ALLOWED_IDLE_TIME,
 )
-from vocode.streaming.models.actions import ActionInput
-from vocode.streaming.models.agent import ChatGPTAgentConfig, FillerAudioConfig
+from vocode.streaming.models.agent import FillerAudioConfig
 from vocode.streaming.models.events import Sender
 from vocode.streaming.models.message import BaseMessage
 from vocode.streaming.models.synthesizer import (
     SentimentConfig,
 )
-from vocode.streaming.models.transcriber import EndpointingConfig, TranscriberConfig
+from vocode.streaming.models.transcriber import TranscriberConfig
 from vocode.streaming.models.transcript import (
     Message,
     Transcript,
@@ -57,7 +54,6 @@ from vocode.streaming.transcriber.base_transcriber import (
 from vocode.streaming.utils import create_conversation_id, get_chunk_size_per_second
 from vocode.streaming.utils.conversation_logger_adapter import wrap_logger
 from vocode.streaming.utils.events_manager import EventsManager
-from vocode.streaming.utils.goodbye_model import GoodbyeModel
 from vocode.streaming.utils.state_manager import ConversationStateManager
 from vocode.streaming.utils.worker import (
     AsyncQueueWorker,
@@ -65,7 +61,6 @@ from vocode.streaming.utils.worker import (
     InterruptibleEvent,
     InterruptibleEventFactory,
     InterruptibleAgentResponseEvent,
-    InterruptibleWorker,
 )
 
 OutputDeviceType = TypeVar("OutputDeviceType", bound=BaseOutputDevice)
@@ -579,14 +574,14 @@ class StreamingConversation(Generic[OutputDeviceType]):
                     or ALLOWED_IDLE_TIME
             ):
                 self.logger.debug("Conversation idle for too long")
-                transcription = Transcription(message="THIS IS SYSTEM MESSAGE: Conversation idle for too long. ASK USER IF THEY ARE STILL THERE.",
-                                              confidence=1.0,
-                                              is_final=True,
-                                              is_interrupt=True)
+                transcription = Transcription(
+                    message="THIS IS SYSTEM MESSAGE: Conversation idle for too long. ASK USER IF THEY ARE STILL THERE.",
+                    confidence=1.0,
+                    is_final=True,
+                    is_interrupt=True)
                 self.transcriptions_worker.consume_nonblocking(transcription)
                 return
-            await asyncio.sleep(self.agent.get_agent_config().allowed_idle_time_seconds) # checks every 5 seconds
-
+            await asyncio.sleep(self.agent.get_agent_config().allowed_idle_time_seconds)  # checks every 5 seconds
 
     async def track_bot_sentiment(self):
         """Updates self.bot_sentiment every second based on the current transcript"""
@@ -647,7 +642,8 @@ class StreamingConversation(Generic[OutputDeviceType]):
         self.clear_queue(self.output_device.queue, 'output_device.queue')
         if isinstance(self.synthesizer, ElevenLabsSynthesizer) and self.synthesizer.miniaudio_worker is not None:
             self.clear_queue(self.synthesizer.miniaudio_worker.input_queue, 'synthesizer.miniaudio_worker.input_queue')
-            self.clear_queue(self.synthesizer.miniaudio_worker.output_queue, 'synthesizer.miniaudio_worker.output_queue')
+            self.clear_queue(self.synthesizer.miniaudio_worker.output_queue,
+                             'synthesizer.miniaudio_worker.output_queue')
             # stop the worker with sentinel
             self.synthesizer.miniaudio_worker.consume_nonblocking(None)
 
@@ -666,7 +662,6 @@ class StreamingConversation(Generic[OutputDeviceType]):
                 q.get_nowait()
             except asyncio.QueueEmpty:
                 continue
-
 
     async def send_speech_to_output(
             self,
@@ -730,7 +725,8 @@ class StreamingConversation(Generic[OutputDeviceType]):
             )
             self.logger.debug(
                 "Voice output Worker: Sent chunk number {} with length {} seconds for message {}".format(chunk_idx,
-                                                                             speech_length_seconds, message)
+                                                                                                         speech_length_seconds,
+                                                                                                         message)
             )
             self.mark_last_action_timestamp()
             chunk_idx += 1

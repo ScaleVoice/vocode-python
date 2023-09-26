@@ -25,6 +25,7 @@ from vocode.streaming.agent.bot_sentiment_analyser import (
     BotSentimentAnalyser,
 )
 from vocode.streaming.agent.chat_gpt_agent import ChatGPTAgent
+from vocode.streaming.agent.gpt_guidance import ChatGPTGuidanceAgent
 from vocode.streaming.agent.gpt_summary_agent import ChatGPTSummaryAgent
 from vocode.streaming.constants import (
     TEXT_TO_SPEECH_CHUNK_SIZE_SECONDS,
@@ -415,6 +416,7 @@ class StreamingConversation(Generic[OutputDeviceType]):
             logger: Optional[logging.Logger] = None,
             summarizer: Optional[ChatGPTSummaryAgent] = None,
             summary_character_limit: Optional[int] = 500,
+            guidance_agent: Optional[ChatGPTGuidanceAgent] = None,
             over_talking_filler_detector: Optional[OpenAIEmbeddingOverTalkingFillerDetector] = None,
             openai_embeddings_response_classifier: Optional[OpenaiEmbeddingsResponseClassifier] = None
     ):
@@ -432,6 +434,7 @@ class StreamingConversation(Generic[OutputDeviceType]):
         self.text_analysis_client = text_analysis_client
 
         self.summarizer = summarizer
+        self.guidance_agent = guidance_agent
 
         self.over_talking_filler_detector = over_talking_filler_detector
         self.openai_embeddings_response_classifier = openai_embeddings_response_classifier
@@ -504,6 +507,7 @@ class StreamingConversation(Generic[OutputDeviceType]):
         self.track_bot_sentiment_task: Optional[asyncio.Task] = None
 
         self.summarize_conversation_task: Optional[asyncio.Task] = None
+        self.guidance_task: Optional[asyncio.Task] = None
 
         self.current_transcription_is_interrupt: bool = False
 
@@ -568,6 +572,9 @@ class StreamingConversation(Generic[OutputDeviceType]):
         self.summarize_conversation_task = asyncio.create_task(
             self.summarize_conversation()
         )
+        self.guidance_task = asyncio.create_task(
+            self.get_guidance()
+        )
 
         self.check_for_idle_task = asyncio.create_task(self.check_for_idle())
         if len(self.events_manager.subscriptions) > 0:
@@ -613,6 +620,28 @@ class StreamingConversation(Generic[OutputDeviceType]):
             if self.transcript.to_string() != prev_transcript:
                 await self.update_bot_sentiment()
                 prev_transcript = self.transcript.to_string()
+
+    async def get_guidance(self):
+        """Gets guidance from guidance agent"""
+        if self.guidance_agent is None:
+            return
+        self.logger.info("Guidance started")
+        last_user_message_id = None
+        # run it in background to get what the user is saying new.
+        while self.is_active():
+            await asyncio.sleep(0.1)
+            if len(self.transcript.event_logs) > 0:
+                curr_id = self.transcript.get_last_user_message()
+                if curr_id is None:
+                    continue
+                curr_id = curr_id[1]
+
+                if curr_id != last_user_message_id:
+
+                    self.logger.info(f"Getting guidance for message: {curr_id}")
+                    transcript_str = self.transcript.to_string()
+                    # await self.guidance_agent.get_guidance(transcript_str)
+                    last_user_message_id = curr_id
 
     async def summarize_conversation(self):
         self.logger.info("Summarizer started")
@@ -799,6 +828,10 @@ class StreamingConversation(Generic[OutputDeviceType]):
         if self.summarize_conversation_task:
             self.logger.debug("Terminating summarize_conversation Task")
             self.summarize_conversation_task.cancel()
+
+        if self.guidance_task:
+            self.logger.debug("Terminating guidance Task")
+            self.guidance_task.cancel()
 
         if self.events_manager and self.events_task:
             self.logger.debug("Terminating events Task")

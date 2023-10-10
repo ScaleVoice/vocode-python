@@ -10,7 +10,6 @@ import typing
 from typing import Any, Awaitable, Callable, Generic, Optional, Tuple, TypeVar
 
 from azure.ai.textanalytics.aio import TextAnalyticsClient
-
 from vocode.streaming.action.worker import ActionsWorker
 from vocode.streaming.agent.base_agent import (
     AgentInput,
@@ -25,6 +24,7 @@ from vocode.streaming.agent.bot_sentiment_analyser import (
     BotSentimentAnalyser,
 )
 from vocode.streaming.agent.chat_gpt_agent import ChatGPTAgent
+from vocode.streaming.agent.gpt_belief_state_extractor import ChatGPTBeliefExtractionAgent
 from vocode.streaming.agent.gpt_summary_agent import ChatGPTSummaryAgent
 from vocode.streaming.constants import (
     TEXT_TO_SPEECH_CHUNK_SIZE_SECONDS,
@@ -334,6 +334,7 @@ class StreamingConversation(Generic[OutputDeviceType]):
                     is_interruptible=item.is_interruptible,
                     agent_response_tracker=item.agent_response_tracker,
                 )
+                self.conversation.synthesis_results_worker.sentences_to_play += 1
 
             except asyncio.CancelledError:
                 pass
@@ -351,6 +352,8 @@ class StreamingConversation(Generic[OutputDeviceType]):
             super().__init__(input_queue=input_queue)
             self.input_queue = input_queue
             self.conversation = conversation
+            self.sentences_to_play = 0
+            self.sentences_buffer = []
 
         async def process(
                 self,
@@ -375,6 +378,26 @@ class StreamingConversation(Generic[OutputDeviceType]):
                     TEXT_TO_SPEECH_CHUNK_SIZE_SECONDS,
                     transcript_message=transcript_message,
                 )
+                self.sentences_buffer += [message_sent]
+                self.sentences_to_play -= 1
+
+                # FIXME: make compatible with no belief state extractor.
+                if self.sentences_to_play == 0:
+                    self.conversation.logger.warning("Extracting belief state from transcript")
+                    user_message = self.conversation.transcript.get_last_user_message()
+                    user_message = user_message[1] if user_message is not None else ""
+                    self.conversation.logger.info(
+                        f"Last user's message {user_message}")
+
+                    bot_messages = "\n".join(["BOT: " + bot_message for bot_message in self.sentences_buffer])
+                    self.conversation.logger.info(f"Bot's messages: {bot_messages}")
+                    # FIXME: refactor it.
+                    conversation = user_message + "\n" + bot_messages
+                    # call extract belief state here.
+                    belief_state = await self.conversation.belief_state_extractor.get_belief_state(conversation)
+                    self.conversation.logger.warning(f"Extracted belief state: {belief_state}")
+                    self.sentences_buffer = []  # reset the buffer
+
                 # publish the transcript message now that it includes what was said during send_speech_to_output
                 self.conversation.transcript.maybe_publish_transcript_event_from_message(
                     message=transcript_message,
@@ -400,6 +423,9 @@ class StreamingConversation(Generic[OutputDeviceType]):
                     except asyncio.TimeoutError:
                         pass
             except asyncio.CancelledError:
+                # FIXME: separete function for cleanup.
+                self.sentences_to_play = 0
+                self.sentences_buffer = []
                 pass
 
     def __init__(
@@ -414,6 +440,7 @@ class StreamingConversation(Generic[OutputDeviceType]):
             events_manager: Optional[EventsManager] = None,
             logger: Optional[logging.Logger] = None,
             summarizer: Optional[ChatGPTSummaryAgent] = None,
+            belief_state_extractor: Optional[ChatGPTBeliefExtractionAgent] = None,
             summary_character_limit: Optional[int] = 250,
             over_talking_filler_detector: Optional[OpenAIEmbeddingOverTalkingFillerDetector] = None,
             openai_embeddings_response_classifier: Optional[OpenaiEmbeddingsResponseClassifier] = None
@@ -432,6 +459,7 @@ class StreamingConversation(Generic[OutputDeviceType]):
         self.text_analysis_client = text_analysis_client
 
         self.summarizer = summarizer
+        self.belief_state_extractor = belief_state_extractor
 
         self.over_talking_filler_detector = over_talking_filler_detector
         self.openai_embeddings_response_classifier = openai_embeddings_response_classifier

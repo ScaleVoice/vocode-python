@@ -5,6 +5,7 @@ from typing import Optional
 from azure.ai.textanalytics.aio import TextAnalyticsClient
 from azure.core.credentials import AzureKeyCredential
 
+from vocode.streaming.agent.gpt_belief_state_extractor import ChatGPTBeliefExtractionAgent
 from vocode.streaming.agent.gpt_summary_agent import ChatGPTSummaryAgent
 from vocode.streaming.ignored_while_talking_fillers_fork import OpenAIEmbeddingOverTalkingFillerDetector
 from vocode.streaming.models.agent import ChatGPTAgentConfig, AzureOpenAIConfig
@@ -37,6 +38,22 @@ Fill in the summary after the line ``SUMMARY:``. If there is no summary yet, cre
 SUMMARY:
 
 """
+
+BELIEF_STATE_PROMPT_PREAMBLE = """You are creating belief state for telephone calls transcripts between AI voice bot and customer.
+Bot`s name is Romana. Customer`s responses are after ``Human:`` and bot`s responses are after ``Bot:``.
+
+You will always respond with JSON that contains the following fields:
+- ``intent``: the intent of the user's message. Intents are user_intrested, user_not_intrested
+- ``car_name``: the name of the car that the user is interested in.
+- ``car_model``: the model of the car that the user is interested in.
+- ``car_year``: the year of the car that the user is interested in.
+- ``car_color``: the color of the car that the user is interested in.
+
+You don't need to fill in all the fields. If conversation yields no information about any of the fields, respond with empty JSON.
+
+"""
+
+
 def get_scalevoice_conversation_config(logger: Logger,
                                        summarizer_prompt_preamble: Optional[str] = None):
     """
@@ -75,4 +92,15 @@ def get_scalevoice_conversation_config(logger: Logger,
         text_analysis_client=TextAnalyticsClient(endpoint=AZURE_TEXT_ANALYTICS_ENDPOINT,
                                                  credential=AzureKeyCredential(AZURE_TEXT_ANALYTICS_KEY)),
 
-    )
+        belief_state_extractor=ChatGPTBeliefExtractionAgent(logger=logger,
+                                                            key=AZURE_OPENAI_API_KEY_SUMMARY,
+                                                            base=AZURE_OPENAI_API_BASE_SUMMARY,
+                                                            agent_config=ChatGPTAgentConfig(
+                                                                prompt_preamble=BELIEF_STATE_PROMPT_PREAMBLE,
+                                                                azure_params=AzureOpenAIConfig(
+                                                                    api_type="azure",
+                                                                    api_version="2023-03-15-preview",
+                                                                    engine="gpt3"  # always use davinci
+                                                                ),
+
+                                                            )))

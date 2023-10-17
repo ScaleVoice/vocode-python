@@ -58,6 +58,8 @@ class Summary(BaseModel):
 
 class BeliefStateEntry(BaseModel):
     belief_state: Any
+    decision: Optional[Any]
+
     start_message_index: int
     end_message_index: int
 
@@ -77,12 +79,13 @@ class Transcript(BaseModel):
     class Config:
         arbitrary_types_allowed = True
 
-    def update_dialog_state(self, new_dialog_state: Any):
+    def update_dialog_state(self, new_dialog_state: Any, decision: Optional[Any] = None):
         if self.current_dialog_state is not None:
             # Push the current belief state to the history before updating it
             self.dialog_states_history.append(
                 BeliefStateEntry(
                     belief_state=self.current_dialog_state,
+                    decision=decision,
                     start_message_index=self.current_start_index,
                     end_message_index=len(self.event_logs) - 1,  # Index of the last message
                 )

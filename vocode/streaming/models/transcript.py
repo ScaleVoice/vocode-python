@@ -8,6 +8,9 @@ from vocode.streaming.models.events import ActionEvent, Sender, Event, EventType
 from vocode.streaming.utils.events_manager import EventsManager
 
 
+SENDER_TO_OPENAI_ROLE = {Sender.HUMAN: 'user', Sender.BOT: 'assistant'}
+
+
 class EventLog(BaseModel):
     sender: Sender
     timestamp: float = Field(default_factory=time.time)
@@ -79,7 +82,7 @@ class Transcript(BaseModel):
     class Config:
         arbitrary_types_allowed = True
 
-    def update_dialog_state(self, new_dialog_state: Any, decision: Optional[Any] = None):
+    def log_dialog_state(self, new_dialog_state: Any, decision: Optional[Any] = None):
         if self.current_dialog_state is not None:
             # Push the current belief state to the history before updating it
             self.dialog_states_history.append(
@@ -111,6 +114,11 @@ class Transcript(BaseModel):
     @property
     def assistant_messages(self) -> List[Message]:
         return [message for message in self.event_logs if message.sender == Sender.BOT]
+
+    def get_message_history(self):
+        return [{"role": SENDER_TO_OPENAI_ROLE[log.sender], "content": log.text}
+         # all messages except for system message
+         for log in self.event_logs if log.sender in (Sender.BOT, Sender.HUMAN)]
 
     @property
     def last_user_message(self) -> Optional[str]:

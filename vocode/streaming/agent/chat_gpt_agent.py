@@ -156,7 +156,7 @@ class ChatGPTAgent(RespondAgent[ChatGPTAgentConfig]):
                             is_interruptible=self.agent_config.allow_agent_to_be_cut_off,
                         )
 
-            self.transcript.update_dialog_state(self.call_script.dialog_state, decision)
+            self.transcript.log_dialog_state(self.call_script.dialog_state, decision)
 
             #
             # self.logger.info("Got dialog state from agent: %s", dialog_state)

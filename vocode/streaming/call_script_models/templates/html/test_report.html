@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Report</title>
+    <!-- Bootstrap CSS CDN -->
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+
+<div class="container mt-5">
+    <h1>Test Report</h1>
+    <div class="mb-3">
+        <!-- Replace 'yourusername/yourrepository' with your actual GitHub username and repository name -->
+        <a href="{{ git_commit }}" class="btn btn-primary" target="_blank">View on GitHub</a>
+    </div>
+
+
+    <table class="table">
+        <thead class="thead-dark">
+        <tr>
+            <th scope="col">Test ID</th>
+            <th scope="col">Runs</th>
+            <th scope="col">Successes</th>
+            <th scope="col">Failures</th>
+            <th scope="col">Accuracy</th>
+            <th scope="col">Details</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for test_id, test_result in test_results.items() %}
+        <tr class="{{ 'table-success' if test_result.accuracy >= threshold else 'table-danger' }}">
+            <th scope="row">{{ test_id }}</th>
+            <td>{{ test_result.n_runs }}</td>
+            <td>{{ test_result.n_successes }}</td>
+            <td>{{ test_result.n_failures }}</td>
+            <td>{{ test_result.accuracy }}</td>
+            <td>
+                <!-- Button to Open the Modal -->
+                <button class="btn btn-info" data-toggle="modal" data-target="#{{ test_id }}-details-modal">Show Details</button>
+            </td>
+        </tr>
+
+        <!-- Modal for Details -->
+        <div class="modal fade" id="{{ test_id }}-details-modal" tabindex="-1" role="dialog" aria-labelledby="detailsModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-xl"> <!-- modal-xl for a wider modal -->
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="detailsModalLabel">Test Details for {{ test_id }}</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <p><strong>Validation successes:</strong> {{ test_result.validation_result.n_successes }}</p>
+                        <p><strong>Validation failures:</strong> {{ test_result.validation_result.failed_validation | length }}</p>
+                        <!-- Reasons -->
+                        <div>
+                            <h6>Reasons</h6>
+                            <ul>
+                                {% for val_result in test_result.validation_result.failed_validation %}
+                                <li>
+                                    <strong>Reason:</strong> {{ val_result.reason }}<br>
+                                    <strong>Broken Test:</strong> {{ val_result.text }}
+                                </li>
+                                {% else %}
+                                <li>No broken tests</li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+
+                        <!-- Dialog State Updates -->
+                        <div>
+                            <h6>Dialog State Updates:</h6>
+                            <ul>
+                                {% for state, count in test_result.dialog_state_update_counter.items() %}
+                                <li>{{ state }}: {{ count }}</li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+
+                        <!-- Runs comparison -->
+                        <div>
+                            <h6>All Runs</h6>
+                            {% for run in test_result.runs %}
+                            <div class="card mt-2">
+                                <div class="card-header">
+                                    Run #{{ loop.index }}
+                                </div>
+                                <div class="card-body">
+                                    <h5 class="card-title">Expectation vs GPT Response</h5>
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <h6>Expectation</h6>
+                                            <!-- Assuming the expectation is a JSON structure -->
+                                            <pre>{{ run.expectation | tojson(indent=2) }}</pre>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <h6>GPT Response</h6>
+                                            <p><strong>Message:</strong> {{ run.gpt_response.message }}</p>
+                                            {% if run.gpt_response.dialog_state_update %}
+                                            <p><strong>Dialog State Update:</strong></p>
+                                            <pre>{{ run.gpt_response.dialog_state_update | tojson(indent=2) }}</pre>
+                                            {% else %}
+                                            <p>No dialog state updates.</p>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- jQuery and Bootstrap JS CDN -->
+<script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@4.5.2/dist/js/bootstrap.bundle.min.js"></script>
+
+</body>
+</html>

@@ -3,7 +3,6 @@ import json
 import logging
 import re
 import time
-from dataclasses import dataclass
 from json import JSONDecodeError
 from typing import Any, Dict, List, Union
 from typing import AsyncGenerator, Optional, Tuple
@@ -14,13 +13,15 @@ import tiktoken
 from vocode import getenv
 from vocode.streaming.action.factory import ActionFactory
 from vocode.streaming.agent.base_agent import RespondAgent, AgentInput, AgentResponseMessage
-from vocode.streaming.agent.response_validator import DefaultResponseValidator, ValidationResult
 from vocode.streaming.agent.utils import (
     format_openai_chat_messages_from_transcript,
     collate_response_async,
     openai_get_tokens,
     vector_db_result_to_openai_chat_message,
 )
+from vocode.streaming.call_script_models.call_script import OutboundBuyCallScript
+from vocode.streaming.call_script_models.models import ConsoleChatResponse
+from vocode.streaming.call_script_models.response_validator import DefaultResponseValidator, ValidationResult
 from vocode.streaming.models.actions import FunctionCall
 from vocode.streaming.models.agent import ChatGPTAgentConfig
 from vocode.streaming.models.message import BaseMessage
@@ -28,39 +29,6 @@ from vocode.streaming.models.model import BaseModel
 from vocode.streaming.models.transcript import Transcript
 from vocode.streaming.transcriber.base_transcriber import Transcription
 from vocode.streaming.vector_db.factory import VectorDBFactory
-
-
-@dataclass
-class ConsoleChatResponse:
-    message: str
-    dialog_state_update: Optional[dict]
-    raw_text: str
-    failed_validation: Optional[ValidationResult] = None
-    values_to_normalize: Optional[dict] = None
-
-    @property
-    def has_failed_validation(self):
-        return self.failed_validation is not None
-
-    @property
-    def values_to_prompt_format(self) -> str:
-        """Values to normalize in GPT functions friendly format
-        :return: str with values to normalize
-        """
-        content = ""
-        for key, value in self.values_to_normalize.items():
-            if value is None:
-                value = "null"
-            content += f'{key}: {value}\n'
-        return content
-
-
-class ConsoleChatDecision(BaseModel):
-    response: ConsoleChatResponse
-    say_now_raw_text: Optional[str] = None
-    say_now_script_location: Optional[str] = None
-    retry: bool = None
-    normalize: bool = False
 
 
 def messages_from_transcript(transcript: Transcript, system_prompt: str):
@@ -111,7 +79,7 @@ class ChatGPTAgent(RespondAgent[ChatGPTAgentConfig]):
                 self.agent_config.vector_db_config
             )
 
-        self.call_script = self.agent_config.call_script  # FIXME: ugly flow refactor it.
+        self.call_script = OutboundBuyCallScript(self.agent_config.dialog_state)  # FIXME: ugly flow refactor it.
 
         self.response_validator = DefaultResponseValidator(max_length=self.agent_config.max_chars_check,
                                                            )
@@ -120,7 +88,7 @@ class ChatGPTAgent(RespondAgent[ChatGPTAgentConfig]):
 
     @property
     def extract_belief_state(self):
-        return self.agent_config.call_script.dialog_state_prompt is not None
+        return self.call_script.dialog_state_prompt is not None
 
     async def is_goodbye(self, message: str):
         return self.goodbye_phrase.lower() in message.lower()
@@ -171,7 +139,8 @@ class ChatGPTAgent(RespondAgent[ChatGPTAgentConfig]):
     async def _handle_initial_decision(self, chat_response: ConsoleChatResponse, decision: BaseModel):
         if decision.normalize:
             self.logger.warning("Normalizing dialog state")
-            normalized_dialog_state = await self.get_normalized_values(decision.response.values_to_prompt_format, list(decision.response.values_to_normalize))
+            normalized_dialog_state = await self.get_normalized_values(decision.response.values_to_prompt_format,
+                                                                       list(decision.response.values_to_normalize))
             normalized_dialog_state = {
                 k: v for k, v in normalized_dialog_state.items() if k in decision.response.dialog_state_update
             }
@@ -361,7 +330,7 @@ class ChatGPTAgent(RespondAgent[ChatGPTAgentConfig]):
         }
 
         if dialog_state_extract:
-            dialog_state_prompt, function = self.agent_config.call_script.render_dialog_state_prompt_and_function(
+            dialog_state_prompt, function = self.call_script.render_dialog_state_prompt_and_function(
                 override_dialog_state=override_dialog_state,
             )
             messages = messages or format_openai_chat_messages_from_transcript(
@@ -370,11 +339,11 @@ class ChatGPTAgent(RespondAgent[ChatGPTAgentConfig]):
             parameters.update({"functions": [function], "function_call": {"name": function["name"]}})
 
         elif normalize:
-            prompt_preamble = self.agent_config.call_script.render_normalization_prompt(keys_to_normalize)
+            prompt_preamble = self.call_script.render_normalization_prompt(keys_to_normalize)
             messages = [{"role": "system", "content": prompt_preamble}]
         else:
             messages = messages or format_openai_chat_messages_from_transcript(
-                self.transcript, self.agent_config.call_script.render_text_prompt(
+                self.transcript, self.call_script.render_text_prompt(
                     override_dialog_state=override_dialog_state
                 ))
 
@@ -479,7 +448,7 @@ class ChatGPTAgent(RespondAgent[ChatGPTAgentConfig]):
                 )
                 vector_db_result = f"Found {len(docs_with_scores)} similar documents:\n{docs_with_scores_str}"
                 messages = format_openai_chat_messages_from_transcript(
-                    self.transcript, self.agent_config.call_script.prompt_preamble
+                    self.transcript, self.call_script.text_template
                 )
                 messages.insert(
                     -1, vector_db_result_to_openai_chat_message(vector_db_result)

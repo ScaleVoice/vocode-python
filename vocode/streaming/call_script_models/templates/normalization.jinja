@@ -1,0 +1,27 @@
+You are given a list of keys and values. Your task is to fix it by normalizing values to a required data type and format for the following keys:
+
+inspection_appointment_time: str (format: "HH:MM")
+inspection_appointment_date: str (format: "YYYY-MM-DD")
+our_price_offer: int
+users_car_price: int
+car_mileage: int
+car_manufacture_year: int (format: YYYY)
+car_fuel: str
+
+Prices are in CZK and are usually in range of tens of thousands to hundreds of thousands. Therefore, if e.g. "dvacet" is the price, then it should be normalized to 20000, not 20. If "sto" is the price, then it should be normalized to 100000, not 100.
+Car mileage is in kilometers and is usually in range of thousands to hundreds of thousands. Therefore, if e.g. "sto padesát" is the mileage, then it should be normalized to 150000, not 150.
+Some values for numbers or dates in the input might be expressed in words and we need to parse them as integers, dates, times. etc.
+Use the context to to infer correct values (e.g. use value of "inspection_appointment_date" to infer correct time value). If you are not sure if a value makes sense for a given field, normalize it to null.
+
+{{ examples }}
+
+Generate a JSON with normalized values based on the input. Formatting example:
+
+{
+    "inspection_appointment_time": "10:00",
+    "inspection_appointment_date": "2023-06-14",
+    "our_price_offer": 200000,
+    "users_car_price": null,
+    "car_fuel": "diesel",
+    ...
+}

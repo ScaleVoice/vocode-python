@@ -1,14 +1,15 @@
 from enum import Enum
 from typing import List, Optional, Union, Any
 
-from jinja2 import Template
 from langchain.prompts import PromptTemplate
 from pydantic import validator
-
 from vocode.streaming.models.actions import ActionConfig
 from vocode.streaming.models.message import BaseMessage
+
 from .model import TypedModel, BaseModel
 from .vector_db import VectorDBConfig
+from ..call_script_models.call_script import OutboundBuyCallScript
+from ..call_script_models.models import OutboundBuyState
 
 FILLER_AUDIO_DEFAULT_SILENCE_THRESHOLD_SECONDS = 0.5
 LLM_AGENT_DEFAULT_TEMPERATURE = 1.0
@@ -95,12 +96,12 @@ class ChatGPTFunctionsConfig(BaseModel):
 
 
 class ChatGPTAgentConfig(AgentConfig, type=AgentType.CHAT_GPT.value):
-    prompt_preamble: Template
-    call_script: Optional[Any] = None
+    prompt_preamble: str
+    dialog_state: OutboundBuyState
     expected_first_prompt: Optional[str] = None
     model_name: str = CHAT_GPT_AGENT_DEFAULT_MODEL_NAME
     max_tokens: int = 500
-    max_total_tokens: int = 4096  # limit for 4k model.
+    max_total_tokens: int = 4000  # limit for 4k model.
     cut_off_response: Optional[CutOffResponse] = None
     azure_params: Optional[AzureOpenAIConfig] = None
     chat_gpt_functions_config: ChatGPTFunctionsConfig = ChatGPTFunctionsConfig()
@@ -113,8 +114,11 @@ class ChatGPTAgentConfig(AgentConfig, type=AgentType.CHAT_GPT.value):
 
     max_chars_check: int = 600
 
+
+
     class Config:
         arbitrary_types_allowed = True
+
 
 
 class ChatAnthropicAgentConfig(AgentConfig, type=AgentType.CHAT_ANTHROPIC.value):

@@ -754,22 +754,27 @@ class ChatGPTAgentOld(RespondAgent[ChatGPTAgentConfigOLD]):
             chat_parameters = self.get_chat_parameters()
         chat_parameters["stream"] = True
         self.logger.info('attempting stream response')
+        # TODO: refactor this
         stream, first_response = await self.attempt_stream_response(chat_parameters, self.timeout)
         if first_response is not None:
             self.logger.info('First steam was successful')
+            self.transcript.log_gpt_message(first_response)
             yield first_response, True
             async for message in collate_response_async(
                     openai_get_tokens(stream), get_functions=True):
                 yield message, True
+                self.transcript.log_gpt_message(message)
         else:
             self.logger.info('First steam failed, dropping it and retrying once again')
             # If no first response, send filler and retry once
             yield "<HOLD ON>", False  # FIXME: should use queue of filler words worker or someting better,
             stream, first_response = await self.attempt_stream_response(chat_parameters, self.timeout + 2)
             if first_response is not None:
+                self.transcript.log_gpt_message(first_response)
                 yield first_response, True
                 async for message in collate_response_async(
                         openai_get_tokens(stream), get_functions=True):
+                    self.transcript.log_gpt_message(message)
                     yield message, True
             else:
                 self.logger.error('Second stream failed, giving up')

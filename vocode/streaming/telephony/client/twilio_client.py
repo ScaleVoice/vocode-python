@@ -35,7 +35,7 @@ class TwilioClient(BaseTelephonyClient):
     ) -> str:
         # TODO: Make this async. This is blocking.
         twiml = self.get_connection_twiml(conversation_id=conversation_id)
-        status_callback = f'https://{self.base_url}/call_status'
+        status_callback = f'http://{self.base_url}/call_status'
         twilio_call = self.twilio_client.calls.create(
             twiml=twiml.body.decode("utf-8"),
             to=to_phone,

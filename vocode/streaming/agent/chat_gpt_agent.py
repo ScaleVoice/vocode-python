@@ -631,11 +631,14 @@ class ChatGPTAgentOld(RespondAgent[ChatGPTAgentConfigOLD]):
         messages = messages or format_openai_chat_messages_from_transcript(
             self.transcript, self.agent_config.prompt_preamble
         )
+        messages[0]['role'] = "user"
 
         parameters: Dict[str, Any] = {
             "messages": messages,
             "max_tokens": self.agent_config.max_tokens,
             "temperature": self.agent_config.temperature,
+            "api_key": getenv("AZURE_OPENAI_API_KEY"),
+            "api_base": "https://api.mistral.ai/v1/",
         }
 
         if self.agent_config.azure_params is not None:

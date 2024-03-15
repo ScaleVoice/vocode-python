@@ -28,6 +28,8 @@ from vocode.streaming.transcriber.factory import TranscriberFactory
 from vocode.streaming.utils.events_manager import EventsManager
 from vocode.streaming.utils.state_manager import TwilioCallStateManager
 
+import threading
+
 
 class PhoneCallWebsocketAction(Enum):
     CLOSE_WEBSOCKET = 1
@@ -116,7 +118,13 @@ class TwilioCall(Call[TwilioOutputDevice]):
         #     self.logger.info(f"Call answered by {twilio_call.answered_by}")
         #     twilio_call.update(status="completed")
         # else:
+        current_threads = threading.enumerate()
+        print(f"Current threads before start: {len(current_threads)}")
+        for thread in current_threads:
+            print(f"Thread ID: {thread.ident}, Name: {thread.name}")
         await self.wait_for_twilio_start(ws)
+        current_threads = threading.enumerate()
+        print(f"Current threads after start: {len(current_threads)}")
         self.logger.info("Starting call...")
         await super().start()
         self.logger.info("Call started")
@@ -134,6 +142,8 @@ class TwilioCall(Call[TwilioOutputDevice]):
                 break
         await self.config_manager.delete_config(self.id)
         await self.tear_down()
+        current_threads = threading.enumerate()
+        print(f"Current threads after call end: {len(current_threads)}")
 
     async def wait_for_twilio_start(self, ws: WebSocket):
         assert isinstance(self.output_device, TwilioOutputDevice)

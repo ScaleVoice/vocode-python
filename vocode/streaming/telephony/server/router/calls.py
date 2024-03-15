@@ -1,6 +1,6 @@
 from typing import Optional
 import logging
-
+import psutil
 from fastapi import APIRouter, HTTPException, WebSocket
 from vocode.streaming.agent.factory import AgentFactory
 from vocode.streaming.models.telephony import (
@@ -23,14 +23,14 @@ from vocode.streaming.utils.events_manager import EventsManager
 
 class CallsRouter(BaseRouter):
     def __init__(
-        self,
-        base_url: str,
-        config_manager: BaseConfigManager,
-        transcriber_factory: TranscriberFactory = TranscriberFactory(),
-        agent_factory: AgentFactory = AgentFactory(),
-        synthesizer_factory: SynthesizerFactory = SynthesizerFactory(),
-        events_manager: Optional[EventsManager] = None,
-        logger: Optional[logging.Logger] = None,
+            self,
+            base_url: str,
+            config_manager: BaseConfigManager,
+            transcriber_factory: TranscriberFactory = TranscriberFactory(),
+            agent_factory: AgentFactory = AgentFactory(),
+            synthesizer_factory: SynthesizerFactory = SynthesizerFactory(),
+            events_manager: Optional[EventsManager] = None,
+            logger: Optional[logging.Logger] = None,
     ):
         super().__init__()
         self.base_url = base_url
@@ -44,16 +44,16 @@ class CallsRouter(BaseRouter):
         self.router.websocket("/connect_call/{id}")(self.connect_call)
 
     def _from_call_config(
-        self,
-        base_url: str,
-        call_config: BaseCallConfig,
-        config_manager: BaseConfigManager,
-        conversation_id: str,
-        logger: logging.Logger,
-        transcriber_factory: TranscriberFactory = TranscriberFactory(),
-        agent_factory: AgentFactory = AgentFactory(),
-        synthesizer_factory: SynthesizerFactory = SynthesizerFactory(),
-        events_manager: Optional[EventsManager] = None,
+            self,
+            base_url: str,
+            call_config: BaseCallConfig,
+            config_manager: BaseConfigManager,
+            conversation_id: str,
+            logger: logging.Logger,
+            transcriber_factory: TranscriberFactory = TranscriberFactory(),
+            agent_factory: AgentFactory = AgentFactory(),
+            synthesizer_factory: SynthesizerFactory = SynthesizerFactory(),
+            events_manager: Optional[EventsManager] = None,
     ):
         if isinstance(call_config, TwilioCallConfig):
             return TwilioCall(
@@ -96,9 +96,13 @@ class CallsRouter(BaseRouter):
             raise ValueError(f"Unknown call config type {call_config.type}")
 
     async def connect_call(self, websocket: WebSocket, id: str):
+        mem_before = psutil.virtual_memory().used
+        self.logger.info(f"Memory before accepting websocket: {mem_before}")
         self.logger.info("Opening Phone WS for chat {}".format(id))
         await websocket.accept()
         self.logger.info("Phone WS connection opened for chat {}".format(id))
+        mem_after_accept = psutil.virtual_memory().used
+        self.logger.info(f"Memory after accepting websocket: {mem_after_accept}")
         call_config = await self.config_manager.get_config(id)
         self.logger.info(f"Got call config for {id}")
         if not call_config:
@@ -119,6 +123,8 @@ class CallsRouter(BaseRouter):
 
         await call.attach_ws_and_start(websocket)
         self.logger.debug("Phone WS connection closed for chat {}".format(id))
+        mem_end = psutil.virtual_memory().used
+        self.logger.info(f"Memory at end of connect_call: {mem_end}")
 
     def get_router(self) -> APIRouter:
         return self.router

@@ -231,7 +231,7 @@ class StreamingConversation(Generic[OutputDeviceType]):
 
                 filler_audio = item.payload
                 silence_threshold = (
-                    self.conversation.filler_audio_config.silence_threshold_seconds
+                    5
                 )
                 filler_synthesis_result = filler_audio.create_synthesis_result()
                 self.current_filler_seconds_per_chunk = filler_audio.seconds_per_chunk

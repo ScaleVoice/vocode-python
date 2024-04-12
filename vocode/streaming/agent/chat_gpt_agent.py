@@ -747,6 +747,48 @@ class ChatGPTAgentOld(RespondAgent[ChatGPTAgentConfigOLD]):
         yield self.response_predictor.get_retry_failed(), False
         raise RuntimeError("Failed to get a timely response from OpenAI after retries.")
 
+    async def check_response(self):
+        chat_parameters = self.get_chat_parameters()
+        chat_parameters["model"] = "gpt-3.5-turbo-0125"
+        messages = [{"role": "system", "content": """
+        You task is to look at messages and help Conversational decide when to switch models.
+
+        This is where smart model is not needed:
+        - yes, okay, good, or any confirmation sentence
+        - no, not right now, or any other negative confirmation
+        
+        This is where smart model is necessary:
+        - complex answers
+        - answers longer than 3 words
+        - questions
+        - out of context questions
+        - jokes, sarcastic answers
+        - Conversational model is not able to handle hard parts of the conversation like:
+        - price negotioation
+        - meeting scheduling
+        - convesational agent is confused or doesn't undestand the context
+        
+        
+        So you need to look at where conversation is now and output:
+        {"smart": true} if you think that it is time to switch to another model
+        {"smart": false} if you think that it is not time to switch to another model. 
+        Note that you should prefer not to switch too often. It is better to switch when it is really needed.
+        
+        In that json if you also need to add filler phrase to the conversation, you can add it as "filler" key. 
+        It has to be contextual so that Conversation model can win some time to switch to another model and also say 
+        those fillers while another model is generating response. 
+        It must be ONE short sentence that confirms. Like great thank you, or I see, or I understand. Nothing else.
+        You must generate that filler phrase always, even if you think that it is not time to switch.
+        Don't repeat what customer said - just filler phrase as generic as possible.
+        {"smart": boolean, "filler": string} and you must fill both keys.
+        """}]
+        chat_parameters["messages"].pop(0)
+        chat_parameters["messages"] = messages + chat_parameters["messages"][-2:]
+        self.logger.info('Attempting to check response.')
+        chat_completion = await openai.ChatCompletion.acreate(**chat_parameters)
+        text = chat_completion.choices[0].message.content
+        return text
+
     async def generate_response(
             self,
             human_input: str,
@@ -786,7 +828,24 @@ class ChatGPTAgentOld(RespondAgent[ChatGPTAgentConfigOLD]):
         else:
             chat_parameters = self.get_chat_parameters()
         chat_parameters["stream"] = True
+        chat_parameters["model"] = "gpt-3.5-turbo-0125"
         chat_parameters["seed"] = self.seed
+        observation_agent_response = await self.check_response()
+        self.logger.info(f"Observation agent response: {observation_agent_response}")
+        # try to load json
+        try:
+            observation_agent_response = json.loads(observation_agent_response)
+            smart = observation_agent_response.get("smart")
+            filler = observation_agent_response.get("filler")
+            if str(smart).lower() == "true":
+                self.logger.info("Switching to another model")
+                chat_parameters["model"] = "gpt-4-turbo"
+            if filler:
+                self.logger.info(f"SAYING filler: {filler}")
+                yield filler, True
+        except JSONDecodeError:
+            self.logger.error("Failed to parse observation_agent")
+            observation_agent_response = None
 
         self.logger.info('Attempting to stream response.')
         async for response, is_successful in self.__attempt_stream_with_retries(

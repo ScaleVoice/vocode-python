@@ -717,6 +717,7 @@ class ChatGPTAgentOld(RespondAgent[ChatGPTAgentConfigOLD]):
             return None, None
 
     async def __attempt_stream_with_retries(self, chat_parameters, initial_timeout, max_retries):
+        self.logger.info('Attempting to stream response with retries.')
         timeout_increment = self.agent_config.retry_time_increment_seconds
         current_timeout = initial_timeout
 
@@ -746,6 +747,83 @@ class ChatGPTAgentOld(RespondAgent[ChatGPTAgentConfigOLD]):
         self.logger.error('All stream attempts failed, giving up.')
         yield self.response_predictor.get_retry_failed(), False
         raise RuntimeError("Failed to get a timely response from OpenAI after retries.")
+
+    async def get_filler_response(self):
+        prompt = """
+            You are a rep on A A A Auto call center, your name is Romana Kuchařová,  woman, 38y old, great Czech native speaker, very friendly, relatable, laid back, casual, polite, but energetic and always positive. You are an AI.
+    You are talking to a customer on a phone, customer has filled out form on A A A Auto Website to sell a car to us, we are very interested in buying customer car.
+    You should NOT speak like an AI language model.
+    If you are asked whether your are a robot, machine, AI, etc., admit explicitly that you are an AI with a short humorous response.
+    
+    Your OUTPUT is a JSON.
+    
+    USE use short, natural, affirmations, FILLER SENTENCE, that ALWAYS!!! ends with a DOT even if it doesn't fit the next words or language like this: 
+            "Děkuji moc.",
+            "To je skvělé.",
+            "Tak Dobrá.",
+            "Tak to je skvělé. "
+           "Hmm. Dobře, rozumím."
+           "Jistě, zopakuji."
+           "Dobře.",
+            "Aha, chápu.",
+            "Omlouvám se."
+            "To je parádní.",
+            "To je super.",
+            "Hmm, rozumím.",
+            "Naprosto rozumím.",
+            "Chápu to.",
+            "Ne, ne.",
+            "To je škoda.",
+            "Tak jistě.",
+            "Ano, přesně tak.",
+            "Rozumím, rozumím.",
+            "To zní dobře.",
+            "Určitě, to dává smysl.",
+            "Tak dobře."
+            "Rozumím vám.",
+    
+    READ the Agent question and User answer. 
+     IF the answer is positive in the given context to the Agent question use positive fillers!!!!
+     IF the answer is negative: Use neutral fillers. 
+     IF the answer is another question: use transition filler
+     IF the user answer is that user doesn't understood the Agent question - use sorry filler for repeating it
+     IF the answer doesn't fit the Agent question. Use neutral fillers.
+     IF customer mentioned misunderstanding in conversation  - use sorry or neutral filler
+     IF customer gets angry or impatient use sorry filler
+    
+    OUTPUT RULES
+    
+    IMPORTANT, THIS MAKES THE CONVERSATION GREAT: AS A RESPONSE TO EVERY CUSTOMER ANSWER ALWAYS ALWAYS generate short FILLER SENTENCE from the list above.
+    
+    DONT REPEAT THE FILLERS!!!
+    KEEP THE OUTPUT IN JSON !!!! OR YOU ARE FIRED.
+    
+    NOW YOUR INPUT IS A LAST CONVERSATIONAL TURN BETWEEN AGENT AND USER. TRY TO ANSWER WITH BUSINESS RULES IN MIND.
+    
+    OUTPUT IS A JSON { filler: "", sentence: ""}  only fill in the part of the first filler sentence in the filler. And the rest in the sentence key. 
+    
+    And now remove the sentence key and value from JSON and only output the filler. like this  { filler: ""}
+        """
+        self.logger.info('Attempting to get filler response.')
+        chat_parameters = self.get_chat_parameters()
+        chat_parameters["stream"] = False
+        chat_parameters["messages"] = [{"role": "system", "content": prompt}]
+        chat_parameters["messages"].append({"role": "assistant", "content": self.transcript.get_last_bot_message()[1]})
+        chat_parameters["messages"].append({"role": "user", "content": self.transcript.get_last_user_message()[1]})
+        self.logger.info(chat_parameters["messages"][1:])
+        chat_parameters["seed"] = self.seed
+        chat_parameters["model"] = "gpt-3.5-turbo-0125"
+
+        chat_completion = await openai.ChatCompletion.acreate(**chat_parameters)
+        self.logger.info("GOT FILLER RESPONSE")
+        text = chat_completion.choices[0].message.content
+        try:
+            self.logger.info(f"Filler response: {text}")
+            filler = json.loads(text)["filler"]
+            return filler, True
+        except JSONDecodeError:
+            self.logger.error(f"No JSON data parsed in response. {text}")
+            return text, False
 
     async def generate_response(
             self,
@@ -787,8 +865,12 @@ class ChatGPTAgentOld(RespondAgent[ChatGPTAgentConfigOLD]):
             chat_parameters = self.get_chat_parameters()
         chat_parameters["stream"] = True
         chat_parameters["seed"] = self.seed
-
         self.logger.info('Attempting to stream response.')
+
+        fast_response, successful = await self.get_filler_response()
+        if fast_response:
+            yield fast_response, successful
+
         async for response, is_successful in self.__attempt_stream_with_retries(
                 chat_parameters, self.agent_config.timeout_seconds,
                 max_retries=self.agent_config.max_retries):

@@ -172,7 +172,7 @@ class StreamingConversation(Generic[OutputDeviceType]):
                     self.conversation.broadcast_interrupt()
                 )
                 if self.conversation.current_transcription_is_interrupt:
-                    self.conversation.logger.debug("sending interrupt")
+                    self.conversation.logger.warning("sending interrupt")
 
             transcription.is_interrupt = (
                 self.conversation.current_transcription_is_interrupt
@@ -341,8 +341,8 @@ class StreamingConversation(Generic[OutputDeviceType]):
                 )
                 self.conversation.mark_last_action_timestamp()  # once speech started creating.
                 end_time = time.time()
-                self.conversation.logger.info(
-                    "Getting response from Synth took {} seconds".format(end_time - start_time))
+                # self.conversation.logger.info(
+                    # "Getting response from Synth took {} seconds".format(end_time - start_time))
                 self.conversation.logger.warning(f"Is interruptible: {item.is_interruptible}")
                 self.produce_interruptible_agent_response_event_nonblocking(
                     (agent_response_message.message, synthesis_result),
@@ -685,12 +685,12 @@ class StreamingConversation(Generic[OutputDeviceType]):
     async def check_for_idle(self):
         """Asks if user still here."""
         while self.is_active():
-            self.logger.info("Checking for idle")
+            # self.logger.info("Checking for idle")
             if time.time() - self.last_action_timestamp > (
                     self.agent.get_agent_config().allowed_idle_time_seconds
                     or ALLOWED_IDLE_TIME
             ):
-                self.logger.info("Conversation idle for too long")
+                # self.logger.info("Conversation idle for too long")
                 # TODO: parametrize this message.
                 transcription = Transcription(
                     message="THIS IS SYSTEM MESSAGE: Conversation idle for too long. If conversation is in czech " + \
@@ -718,7 +718,7 @@ class StreamingConversation(Generic[OutputDeviceType]):
             self.transcript.to_string()
         )
         if new_bot_sentiment.emotion:
-            self.logger.debug("Bot sentiment: %s", new_bot_sentiment)
+            # self.logger.debug("Bot sentiment: %s", new_bot_sentiment)
             self.bot_sentiment = new_bot_sentiment
 
     def receive_message(self, message: str):
@@ -752,6 +752,7 @@ class StreamingConversation(Generic[OutputDeviceType]):
         while True:
             try:
                 interruptible_event = self.interruptible_events.get_nowait()
+                self.logger.warning(f"{interruptible_event.payload} is interruptible.")
                 if not interruptible_event.is_interrupted():
                     if interruptible_event.interrupt():
                         self.logger.debug("Interrupting event")
@@ -760,16 +761,17 @@ class StreamingConversation(Generic[OutputDeviceType]):
                 break
         self.agent.cancel_current_task()
         self.agent_responses_worker.cancel_current_task()
-
-        self.logger.info(f"Broadcasting interrupt. Cancelled {num_interrupts} interruptible events.")
-
-        # Clearing these queues cuts time from finishing interruption talking to bot talking cut by 1 second from ~4.5 to ~3.5 seconds.
-        self.clear_queue(self.agent.output_queue, 'agent.output_queue')
-        self.clear_queue(self.agent_responses_worker.output_queue, 'agent_responses_worker.output_queue')
-        self.clear_queue(self.agent_responses_worker.input_queue, 'agent_responses_worker.input_queue')
-        self.clear_queue(self.synthesis_results_queue, 'synthesis_results_queue')
-        if hasattr(self.output_device, 'queue'):
-            self.clear_queue(self.output_device.queue, 'output_device.queue')
+        # self.synthesis_results_worker.cancel_current_task()
+        #
+        # self.logger.warning(f"-----Broadcasting interrupt. Cancelled {num_interrupts} interruptible events.----")
+        #
+        # # Clearing these queues cuts time from finishing interruption talking to bot talking cut by 1 second from ~4.5 to ~3.5 seconds.
+        # self.clear_queue(self.agent.output_queue, 'agent.output_queue')
+        # self.clear_queue(self.agent_responses_worker.output_queue, 'agent_responses_worker.output_queue')
+        # self.clear_queue(self.agent_responses_worker.input_queue, 'agent_responses_worker.input_queue')
+        # self.clear_queue(self.synthesis_results_queue, 'synthesis_results_queue')
+        # if hasattr(self.output_device, 'queue'):
+        #     self.clear_queue(self.output_device.queue, 'output_device.queue')
         # TODO clearing of the miniaudio queue may not be needed if the task is cancelled agent_responses_worker.cancel_current_task.
         # if isinstance(self.synthesizer, ElevenLabsSynthesizer) and self.synthesizer.miniaudio_worker is not None:
         #     self.clear_queue(self.synthesizer.miniaudio_worker.input_queue, 'synthesizer.miniaudio_worker.input_queue')
@@ -833,8 +835,8 @@ class StreamingConversation(Generic[OutputDeviceType]):
             if first_chunk:
                 generating_end_time = time.time()
                 first_chunk = False
-                self.logger.info(
-                    f"Generating first chunk took {generating_end_time - generating_start_time} seconds for message {message}")
+                # self.logger.info(
+                #     f"Generating first chunk took {generating_end_time - generating_start_time} seconds for message {message}")
 
             start_time = time.time()
             speech_length_seconds = seconds_per_chunk * (
@@ -842,7 +844,7 @@ class StreamingConversation(Generic[OutputDeviceType]):
             )
             seconds_spoken = chunk_idx * seconds_per_chunk
             if stop_event.is_set():
-                self.logger.debug(
+                self.logger.warning(
                     "Interrupted, stopping text to speech after {} chunks".format(
                         chunk_idx
                     )

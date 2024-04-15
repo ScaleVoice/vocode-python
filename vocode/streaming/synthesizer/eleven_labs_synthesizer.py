@@ -217,7 +217,7 @@ class ElevenLabsSynthesizer(BaseSynthesizer[ElevenLabsSynthesizerConfig]):
             yield SynthesisResult.ChunkResult(chunk, True)
 
         complete_audio_data = b''.join(accumulated_audio_chunks)
-        self.logger.info(f"Saving audio for message: {message.text}")
+        # self.logger.info(f"Saving audio for message: {message.text}")
         await self.save_audio_to_cache(complete_audio_data, message.text)
 
     async def experimental_mp3_streaming_output_generator(
@@ -251,7 +251,7 @@ class ElevenLabsSynthesizer(BaseSynthesizer[ElevenLabsSynthesizerConfig]):
                 miniaudio_worker.consume_nonblocking(chunk)
             miniaudio_worker.consume_nonblocking(None)  # sentinel
             complete_audio_data = b''.join(accumulated_audio_chunks)
-            self.logger.info(f"Saving audio for message: {message.text}")
+            # self.logger.info(f"Saving audio for message: {message.text}")
             await self.save_audio_to_cache(complete_audio_data, message.text)
 
         try:
@@ -329,7 +329,7 @@ class ElevenLabsSynthesizer(BaseSynthesizer[ElevenLabsSynthesizerConfig]):
         if not self.ignore_cache:
             cached_audio = self.get_cached_audio(message.text)
             if cached_audio is not None:
-                self.logger.info(f"Using cached audio for message: {message.text}")
+                # self.logger.info(f"Using cached audio for message: {message.text}")
 
                 async def generator():
                     yield SynthesisResult.ChunkResult(cached_audio, True)

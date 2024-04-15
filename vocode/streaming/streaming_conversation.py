@@ -109,7 +109,7 @@ class StreamingConversation(Generic[OutputDeviceType]):
                 output_queue: asyncio.Queue[InterruptibleEvent[AgentInput]],
                 conversation: "StreamingConversation",
                 interruptible_event_factory: InterruptibleEventFactory,
-                let_bot_finish_speaking: bool = True,
+                let_bot_finish_speaking: bool = False,
         ):
             super().__init__(input_queue, output_queue)
             self.input_queue = input_queue
@@ -129,31 +129,31 @@ class StreamingConversation(Generic[OutputDeviceType]):
                 return
 
             # Prevent interrupt.
-            since_last_filler_time = time.time() - self.conversation.last_filler_timestamp
-            silence_since_last_action = time.time() - self.conversation.last_action_timestamp
-            if (
-                    since_last_filler_time < self.conversation.filler_audio_config.silence_threshold_seconds + BOT_TALKING_SINCE_LAST_FILLER_TIME_LIMIT
-                    or silence_since_last_action < BOT_TALKING_SINCE_LAST_ACTION_TIME_LIMIT):
-                # I could clear since_last_filler_time after first response is generated in the synthesizer, but this is complicated to detect, which audio is which.
-                bot_still_talking = True
-                self.conversation.logger.info(
-                    f'Bot still talking, because filler was said recently. since_last_filler_time: {since_last_filler_time}, silence_since_last_action: {silence_since_last_action}')
-
-            else:
-                has_task = self.conversation.synthesis_results_worker.current_task is not None
-                bot_still_talking = has_task and not self.conversation.synthesis_results_worker.current_task.done() if has_task else False
-
-            if bot_still_talking and self.let_bot_finish_speaking:
-                self.conversation.logger.info(
-                    f'The user said "{transcription.message}" during the bot was talking. We are letting the bot finish speaking. Message is not sent to the agent.')
-                # Detect if the bot is talking. This may fail if the current task is done and another not started yet. But playing the audio takes most of the time.
-                return  # just ignore the transcription for now.
-
-            if bot_still_talking and self.conversation.over_talking_filler_detector:
-                self.conversation.logger.info(
-                    f'The user said "{transcription.message}" during the bot was talking. Testing to ignore filler words and confirmation words.')
-                if self.conversation.over_talking_filler_detector.detect_filler(transcription.message):
-                    return
+            # since_last_filler_time = time.time() - self.conversation.last_filler_timestamp
+            # silence_since_last_action = time.time() - self.conversation.last_action_timestamp
+            # if (
+            #         since_last_filler_time < self.conversation.filler_audio_config.silence_threshold_seconds + BOT_TALKING_SINCE_LAST_FILLER_TIME_LIMIT
+            #         or silence_since_last_action < BOT_TALKING_SINCE_LAST_ACTION_TIME_LIMIT):
+            #     # I could clear since_last_filler_time after first response is generated in the synthesizer, but this is complicated to detect, which audio is which.
+            #     bot_still_talking = True
+            #     self.conversation.logger.info(
+            #         f'Bot still talking, because filler was said recently. since_last_filler_time: {since_last_filler_time}, silence_since_last_action: {silence_since_last_action}')
+            #
+            # else:
+            #     has_task = self.conversation.synthesis_results_worker.current_task is not None
+            #     bot_still_talking = has_task and not self.conversation.synthesis_results_worker.current_task.done() if has_task else False
+            #
+            # if bot_still_talking and self.let_bot_finish_speaking:
+            #     self.conversation.logger.info(
+            #         f'The user said "{transcription.message}" during the bot was talking. We are letting the bot finish speaking. Message is not sent to the agent.')
+            #     # Detect if the bot is talking. This may fail if the current task is done and another not started yet. But playing the audio takes most of the time.
+            #     return  # just ignore the transcription for now.
+            #
+            # if bot_still_talking and self.conversation.over_talking_filler_detector:
+            #     self.conversation.logger.info(
+            #         f'The user said "{transcription.message}" during the bot was talking. Testing to ignore filler words and confirmation words.')
+            #     if self.conversation.over_talking_filler_detector.detect_filler(transcription.message):
+            #         return
 
             if transcription.is_final:
                 self.conversation.logger.debug(
@@ -161,11 +161,13 @@ class StreamingConversation(Generic[OutputDeviceType]):
                         transcription.message, transcription.confidence, transcription.is_final
                     )
                 )
-
+            self.conversation.logger.warning(
+                f"is_human_speaking {self.conversation.is_human_speaking}, is_interrupt {self.conversation.is_interrupt(transcription)}")
             if (
                     not self.conversation.is_human_speaking
                     and self.conversation.is_interrupt(transcription)
             ):
+                self.conversation.logger.warning("Interrupting")
                 self.conversation.current_transcription_is_interrupt = (
                     self.conversation.broadcast_interrupt()
                 )
@@ -341,6 +343,7 @@ class StreamingConversation(Generic[OutputDeviceType]):
                 end_time = time.time()
                 self.conversation.logger.info(
                     "Getting response from Synth took {} seconds".format(end_time - start_time))
+                self.conversation.logger.warning(f"Is interruptible: {item.is_interruptible}")
                 self.produce_interruptible_agent_response_event_nonblocking(
                     (agent_response_message.message, synthesis_result),
                     is_interruptible=item.is_interruptible,
@@ -764,6 +767,7 @@ class StreamingConversation(Generic[OutputDeviceType]):
         self.clear_queue(self.agent.output_queue, 'agent.output_queue')
         self.clear_queue(self.agent_responses_worker.output_queue, 'agent_responses_worker.output_queue')
         self.clear_queue(self.agent_responses_worker.input_queue, 'agent_responses_worker.input_queue')
+        self.clear_queue(self.synthesis_results_queue, 'synthesis_results_queue')
         if hasattr(self.output_device, 'queue'):
             self.clear_queue(self.output_device.queue, 'output_device.queue')
         # TODO clearing of the miniaudio queue may not be needed if the task is cancelled agent_responses_worker.cancel_current_task.

@@ -866,10 +866,10 @@ class ChatGPTAgentOld(RespondAgent[ChatGPTAgentConfigOLD]):
         chat_parameters["stream"] = True
         chat_parameters["seed"] = self.seed
         self.logger.info('Attempting to stream response.')
-
-        fast_response, successful = await self.get_filler_response()
-        if fast_response:
-            yield fast_response, successful
+        #
+        # fast_response, successful = await self.get_filler_response()
+        # if fast_response:
+        #     yield fast_response, successful
 
         async for response, is_successful in self.__attempt_stream_with_retries(
                 chat_parameters, self.agent_config.timeout_seconds,

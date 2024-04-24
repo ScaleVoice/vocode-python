@@ -1,3 +1,4 @@
+import logging
 from copy import deepcopy
 import re
 from typing import (
@@ -24,13 +25,15 @@ from vocode.streaming.models.transcript import (
     Transcript,
 )
 
-SENTENCE_ENDINGS = [".", "!", "?", "\n"]
+SENTENCE_ENDINGS = [".", "!", "?"]
+
+logger = logging.getLogger("Collate")
 
 
 async def collate_response_async(
-    gen: AsyncIterable[Union[str, FunctionFragment]],
-    sentence_endings: List[str] = SENTENCE_ENDINGS,
-    get_functions: Literal[True, False] = False,
+        gen: AsyncIterable[Union[str, FunctionFragment]],
+        sentence_endings: List[str] = SENTENCE_ENDINGS,
+        get_functions: Literal[True, False] = False,
 ) -> AsyncGenerator[Union[str, FunctionCall], None]:
     sentence_endings_pattern = "|".join(map(re.escape, sentence_endings))
     list_item_ending_pattern = r"\n"
@@ -45,23 +48,21 @@ async def collate_response_async(
             if prev_ends_with_money and token.startswith(" "):
                 yield buffer.strip()
                 buffer = ""
-
             buffer += token
             possible_list_item = bool(re.match(r"^\d+[ .]", buffer))
             ends_with_money = bool(re.findall(r"\$\d+.$", buffer))
-            if re.findall(
-                list_item_ending_pattern
-                if possible_list_item
-                else sentence_endings_pattern,
-                token,
-            ):
-                if not ends_with_money:
-                    to_return = buffer.strip()
-                    if to_return:
-                        yield to_return
-                    buffer = ""
+            pattern = list_item_ending_pattern if possible_list_item else sentence_endings_pattern
+            # Find all matches in the current buffer
+            matches = re.split(pattern, buffer)
+            if len(matches) > 1:
+                # Iterate over all but the last part; last part remains in buffer
+                for part in matches[:-1]:
+                    if part:
+                        yield part.strip()
+                # Set last match part as new buffer (could be the start of a new segment)
+                buffer = matches[-1]
             prev_ends_with_money = ends_with_money
-        elif isinstance(token, FunctionFragment):
+        if isinstance(token, FunctionFragment):
             function_name_buffer += token.name
             function_args_buffer += token.arguments
     to_return = buffer.strip()
@@ -107,13 +108,13 @@ def find_last_punctuation(buffer: str) -> Optional[int]:
 def get_sentence_from_buffer(buffer: str):
     last_punctuation = find_last_punctuation(buffer)
     if last_punctuation:
-        return buffer[: last_punctuation + 1], buffer[last_punctuation + 1 :]
+        return buffer[: last_punctuation + 1], buffer[last_punctuation + 1:]
     else:
         return None, None
 
 
 def format_openai_chat_messages_from_transcript(
-    transcript: Transcript, prompt_preamble: Optional[str] = None
+        transcript: Transcript, prompt_preamble: Optional[str] = None
 ) -> List[dict]:
     chat_messages: List[Dict[str, Optional[Any]]] = (
         [{"role": "system", "content": prompt_preamble}] if prompt_preamble else []

@@ -31,9 +31,9 @@ logger = logging.getLogger("Collate")
 
 
 async def collate_response_async(
-        gen: AsyncIterable[Union[str, FunctionFragment]],
-        sentence_endings: List[str] = SENTENCE_ENDINGS,
-        get_functions: Literal[True, False] = False,
+    gen: AsyncIterable[Union[str, FunctionFragment]],
+    sentence_endings: List[str] = SENTENCE_ENDINGS,
+    get_functions: Literal[True, False] = False,
 ) -> AsyncGenerator[Union[str, FunctionCall], None]:
     sentence_endings_pattern = "|".join(map(re.escape, sentence_endings))
     list_item_ending_pattern = r"\n"
@@ -48,21 +48,23 @@ async def collate_response_async(
             if prev_ends_with_money and token.startswith(" "):
                 yield buffer.strip()
                 buffer = ""
+
             buffer += token
             possible_list_item = bool(re.match(r"^\d+[ .]", buffer))
             ends_with_money = bool(re.findall(r"\$\d+.$", buffer))
-            pattern = list_item_ending_pattern if possible_list_item else sentence_endings_pattern
-            # Find all matches in the current buffer
-            matches = re.split(pattern, buffer)
-            if len(matches) > 1:
-                # Iterate over all but the last part; last part remains in buffer
-                for part in matches[:-1]:
-                    if part:
-                        yield part.strip()
-                # Set last match part as new buffer (could be the start of a new segment)
-                buffer = matches[-1]
+            if re.findall(
+                list_item_ending_pattern
+                if possible_list_item
+                else sentence_endings_pattern,
+                token,
+            ):
+                if not ends_with_money:
+                    to_return = buffer.strip()
+                    if to_return:
+                        yield to_return
+                    buffer = ""
             prev_ends_with_money = ends_with_money
-        if isinstance(token, FunctionFragment):
+        elif isinstance(token, FunctionFragment):
             function_name_buffer += token.name
             function_args_buffer += token.arguments
     to_return = buffer.strip()

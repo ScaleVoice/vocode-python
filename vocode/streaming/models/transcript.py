@@ -440,6 +440,9 @@ class TranscriptCompleteEvent(Event, type=EventType.TRANSCRIPT_COMPLETE):
             if 'action_input' in event and 'user_message_tracker' in event['action_input']:
                 event['action_input'].pop('user_message_tracker')
 
+            if 'action_input' in event and 'action_config' in event['action_input']:
+                event['action_input'].pop('action_config')
+
         return json.dumps(data_dict, ensure_ascii=False, indent=4)
 
 

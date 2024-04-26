@@ -1,5 +1,6 @@
 from copy import deepcopy
 import re
+import logging
 from typing import (
     Dict,
     Any,
@@ -28,9 +29,9 @@ SENTENCE_ENDINGS = [".", "!", "?", "\n"]
 
 
 async def collate_response_async(
-    gen: AsyncIterable[Union[str, FunctionFragment]],
-    sentence_endings: List[str] = SENTENCE_ENDINGS,
-    get_functions: Literal[True, False] = False,
+        gen: AsyncIterable[Union[str, FunctionFragment]],
+        sentence_endings: List[str] = SENTENCE_ENDINGS,
+        get_functions: Literal[True, False] = False,
 ) -> AsyncGenerator[Union[str, FunctionCall], None]:
     sentence_endings_pattern = "|".join(map(re.escape, sentence_endings))
     list_item_ending_pattern = r"\n"
@@ -50,10 +51,10 @@ async def collate_response_async(
             possible_list_item = bool(re.match(r"^\d+[ .]", buffer))
             ends_with_money = bool(re.findall(r"\$\d+.$", buffer))
             if re.findall(
-                list_item_ending_pattern
-                if possible_list_item
-                else sentence_endings_pattern,
-                token,
+                    list_item_ending_pattern
+                    if possible_list_item
+                    else sentence_endings_pattern,
+                    token,
             ):
                 if not ends_with_money:
                     to_return = buffer.strip()
@@ -69,6 +70,44 @@ async def collate_response_async(
         yield to_return
     if function_name_buffer and get_functions:
         yield FunctionCall(name=function_name_buffer, arguments=function_args_buffer)
+
+
+# FIXME: quick and dirty. Rewrite function to have a single collator.
+async def llama3_collate_response_async(
+        gen: AsyncIterable[Union[str, FunctionFragment]],
+        sentence_endings: List[str] = SENTENCE_ENDINGS,
+        get_functions: Literal[True, False] = False,
+) -> AsyncGenerator[Union[str, FunctionCall], None]:
+    # sentence_endings_pattern = "|".join(map(re.escape, sentence_endings))
+    sentence_endings_pattern = r"(" + "|".join(map(re.escape, sentence_endings)) + ")"
+    list_item_ending_pattern = r"\n"
+    buffer = ""
+    function_name_buffer = ""
+    function_args_buffer = ""
+    prev_ends_with_money = False
+    async for token in gen:
+        if isinstance(token, str):
+            # Split the token by sentence ending patterns, retaining the punctuation
+            parts = re.split(f"({sentence_endings_pattern})", token)
+
+            for part in parts:
+                if not part:
+                    continue
+
+                buffer += part
+                # Check if the part ends with sentence-ending punctuation
+                if re.search(sentence_endings_pattern, part):
+                    if len(buffer.strip()) > 1:
+                        yield buffer.strip()
+                    buffer = ""
+        elif isinstance(token, FunctionFragment):
+            if buffer:
+                yield buffer
+                buffer = ""
+            function_name_buffer += token.name
+            function_args_buffer += token.arguments
+    if buffer:
+        yield buffer
 
 
 async def openai_get_tokens(gen) -> AsyncGenerator[Union[str, FunctionFragment], None]:
@@ -107,13 +146,13 @@ def find_last_punctuation(buffer: str) -> Optional[int]:
 def get_sentence_from_buffer(buffer: str):
     last_punctuation = find_last_punctuation(buffer)
     if last_punctuation:
-        return buffer[: last_punctuation + 1], buffer[last_punctuation + 1 :]
+        return buffer[: last_punctuation + 1], buffer[last_punctuation + 1:]
     else:
         return None, None
 
 
 def format_openai_chat_messages_from_transcript(
-    transcript: Transcript, prompt_preamble: Optional[str] = None
+        transcript: Transcript, prompt_preamble: Optional[str] = None
 ) -> List[dict]:
     chat_messages: List[Dict[str, Optional[Any]]] = (
         [{"role": "system", "content": prompt_preamble}] if prompt_preamble else []

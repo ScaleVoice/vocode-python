@@ -135,13 +135,10 @@ class StreamingConversation(Generic[OutputDeviceType]):
                 self.conversation.logger.info(f"Ignoring empty transcription {transcription}")
                 return
             self.conversation.mark_last_action_timestamp()  # received transcription.
-            if transcription.is_final and self.conversation.is_bot_speaking:
+            if transcription.is_final and self.conversation.is_bot_speaking and self.conversation.use_interrupt_agent:
                 self.conversation.interrupt_worker.input_queue.put_nowait(transcription)
                 return  # gets processed by interrupt worker.
 
-            transcription.is_interrupt = (
-                self.conversation.current_transcription_is_interrupt
-            )
             self.conversation.is_human_speaking = not transcription.is_final
             if transcription.is_final:
                 await self.propagate_transcription(transcription)
@@ -508,7 +505,7 @@ class StreamingConversation(Generic[OutputDeviceType]):
             )
 
         self.is_human_speaking = False
-        self.use_interrupt_agent = True
+        self.use_interrupt_agent = self.agent.agent_config.use_interrupt_agent
         self.bot_talking_lock = Lock()
         self.is_bot_speaking = False
         self.bot_last_stopped_speaking = None

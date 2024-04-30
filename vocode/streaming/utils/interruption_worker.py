@@ -1,6 +1,7 @@
 import asyncio
 import json
 import time
+from typing import Optional
 
 import openai
 
@@ -8,12 +9,14 @@ from vocode.streaming.transcriber.base_transcriber import Transcription
 from vocode.streaming.utils.default_prompts.interrupt_prompt import INTERRUPTION_PROMPT
 from vocode.streaming.utils.worker import AsyncQueueWorker
 
+
 class InterruptWorker(AsyncQueueWorker):
     """Processes transcriptions to determine if an interrupt is needed."""
 
-    def __init__(self, input_queue: asyncio.Queue[Transcription], conversation):
+    def __init__(self, input_queue: asyncio.Queue[Transcription], conversation, prompt: Optional[str] = None):
         super().__init__(input_queue)
         self.conversation = conversation
+        self.prompt = prompt if prompt else INTERRUPTION_PROMPT
 
     async def classify_transcription(self, transcription: Transcription) -> bool:
         last_bot_message = self.conversation.transcript.get_last_bot_text()
@@ -61,10 +64,13 @@ class InterruptWorker(AsyncQueueWorker):
             if is_interrupt and self.conversation.is_bot_speaking:
                 if self.conversation.is_bot_speaking:
                     self.conversation.broadcast_interrupt()
+                    transcription.is_interrupt = True
+                    self.conversation.current_transcription_is_interrupt = True
+
                 return True
-            elif (is_interrupt and self.conversation.bot_last_stopped_speaking and
-                  (time.time() - self.conversation.bot_last_stopped_speaking) < 0.2 and
-                  not self.conversation.is_human_speaking):
+            if (is_interrupt and self.conversation.bot_last_stopped_speaking and
+                    (time.time() - self.conversation.bot_last_stopped_speaking) < 0.2 and
+                    not self.conversation.is_human_speaking):
                 # we don't interrupt but only propagate the transcription if the bot has stopped speaking.
                 return True
             return False

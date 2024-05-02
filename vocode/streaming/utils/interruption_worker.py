@@ -21,9 +21,11 @@ class InterruptWorker(AsyncQueueWorker):
     async def classify_transcription(self, transcription: Transcription) -> bool:
         last_bot_message = self.conversation.transcript.get_last_bot_text()
         transcript_message = transcription.message
-        # TODO: must be parametrized.
+        model = "gpt-3.5-turbo"
+        if self.agent.agent_config.type == "agent_llama3":
+            model = "accounts/fireworks/models/llama-v3-70b-instruct"
         chat_parameters = {
-            "model":  "gpt-3.5-turbo",
+            "model": model,
             "messages": [
                 {"role": "system", "content": INTERRUPTION_PROMPT},
                 {"role": "user", "content": transcript_message},

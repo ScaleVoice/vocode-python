@@ -134,7 +134,11 @@ class StreamingConversation(Generic[OutputDeviceType]):
                 # This is often received when the person starts talking. We don't know if they will use filler word.
                 self.conversation.logger.info(f"Ignoring empty transcription {transcription}")
                 return
-            self.conversation.mark_last_action_timestamp()  # received transcription.
+            self.conversation.mark_last_action_timestamp()
+            if not self.conversation.is_bot_speaking:
+                self.conversation.logger.info(f"Bot is not speaking recieved trasncript clearing queues")
+                self.conversation.broadcast_interrupt()
+
             if transcription.is_final and self.conversation.is_bot_speaking and self.conversation.use_interrupt_agent:
                 self.conversation.interrupt_worker.input_queue.put_nowait(transcription)
                 return  # gets processed by interrupt worker.

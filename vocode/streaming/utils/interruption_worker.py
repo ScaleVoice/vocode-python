@@ -23,7 +23,7 @@ class InterruptWorker(AsyncQueueWorker):
         transcript_message = transcription.message
         # TODO: must be parametrized.
         chat_parameters = {
-            "model": "gpt-3.5-turbo",
+            "model":  "gpt-3.5-turbo",
             "messages": [
                 {"role": "system", "content": INTERRUPTION_PROMPT},
                 {"role": "user", "content": transcript_message},
@@ -65,6 +65,7 @@ class InterruptWorker(AsyncQueueWorker):
                 if self.conversation.is_bot_speaking:
                     self.conversation.broadcast_interrupt()
                     transcription.is_interrupt = True
+                    transcription.message = "<SYSTEM: INTERRUPTED ASK AGAIN LAST QUESTION OR JUST REACT TO USER'S MESSAGE> " + transcription.message
                     self.conversation.current_transcription_is_interrupt = True
 
                 return True

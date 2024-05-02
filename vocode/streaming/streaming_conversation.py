@@ -271,6 +271,12 @@ class StreamingConversation(Generic[OutputDeviceType]):
                         user_message = agent_response.transcript
                         if "THIS IS SYSTEM MESSAGE:" in user_message:  # no filler if this is a system message.
                             return
+                        last_filler_time_since = time.time() - self.conversation.last_filler_timestamp
+                        if last_filler_time_since < 4:
+                            self.conversation.logger.info(
+                                f"Last filler was {last_filler_time_since} seconds ago. Skipping filler."
+                            )
+                            return
 
                         self.conversation.mark_last_filler_timestamp()
                         bot_message = self.conversation.transcript.get_last_bot_text()

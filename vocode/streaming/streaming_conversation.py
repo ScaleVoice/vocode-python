@@ -138,6 +138,10 @@ class StreamingConversation(Generic[OutputDeviceType]):
             if transcription.is_final and self.conversation.is_bot_speaking and self.conversation.use_interrupt_agent:
                 self.conversation.interrupt_worker.input_queue.put_nowait(transcription)
                 return  # gets processed by interrupt worker.
+            if not self.conversation.use_interrupt_agent and self.conversation.is_bot_speaking:
+                self.conversation.logger.info(
+                    f"Bot is speaking, ignoring")
+                return
 
             self.conversation.is_human_speaking = not transcription.is_final
             if transcription.is_final:
@@ -541,6 +545,7 @@ class StreamingConversation(Generic[OutputDeviceType]):
 
     def increment_turn_index(self):
         self.turn_index += 1
+
     def create_state_manager(self) -> ConversationStateManager:
         return ConversationStateManager(conversation=self)
 

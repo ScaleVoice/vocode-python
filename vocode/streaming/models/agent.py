@@ -78,6 +78,8 @@ class AgentConfig(TypedModel, type=AgentType.BASE.value):
     webhook_config: Optional[WebhookConfig] = None
     track_bot_sentiment: bool = False
     actions: Optional[List[ActionConfig]] = None
+    use_interrupt_agent: bool = True
+    interrupt_agent_prompt: Optional[str] = None
 
     initial_audio_path: Optional[str] = None  # path to audio file.
     # Filler picker specials

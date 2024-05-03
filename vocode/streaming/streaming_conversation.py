@@ -6,6 +6,7 @@ import queue
 import threading
 import time
 import typing
+from asyncio import Lock
 from typing import Any, Awaitable, Callable, Generic, Optional, Tuple, TypeVar
 
 from azure.ai.textanalytics.aio import TextAnalyticsClient
@@ -56,6 +57,7 @@ from vocode.streaming.transcriber.base_transcriber import (
 from vocode.streaming.utils import create_conversation_id, get_chunk_size_per_second
 from vocode.streaming.utils.conversation_logger_adapter import wrap_logger
 from vocode.streaming.utils.events_manager import EventsManager, RedisEventsManager
+from vocode.streaming.utils.interruption_worker import InterruptWorker
 from vocode.streaming.utils.state_manager import ConversationStateManager
 from vocode.streaming.utils.worker import (
     AsyncQueueWorker,
@@ -64,9 +66,6 @@ from vocode.streaming.utils.worker import (
     InterruptibleEventFactory,
     InterruptibleAgentResponseEvent,
 )
-
-BOT_TALKING_SINCE_LAST_FILLER_TIME_LIMIT = 3.0
-BOT_TALKING_SINCE_LAST_ACTION_TIME_LIMIT = 0.1
 
 OutputDeviceType = TypeVar("OutputDeviceType", bound=BaseOutputDevice)
 
@@ -118,78 +117,39 @@ class StreamingConversation(Generic[OutputDeviceType]):
             self.interruptible_event_factory = interruptible_event_factory
             self.let_bot_finish_speaking = let_bot_finish_speaking
 
+        async def propagate_transcription(self, transcription: Transcription):
+            event = self.interruptible_event_factory.create_interruptible_event(
+                TranscriptionAgentInput(
+                    transcription=transcription,
+                    conversation_id=self.conversation.id,
+                    vonage_uuid=getattr(self.conversation, "vonage_uuid", None),
+                    twilio_sid=getattr(self.conversation, "twilio_sid", None),
+                )
+            )
+            self.output_queue.put_nowait(event)
+            self.conversation.logger.info(f"USER: {transcription.message}")
+
         async def process(self, transcription: Transcription):
-            self.conversation.logger.info(
-                f"Got transcription event: {transcription.message}, {transcription.confidence}, {transcription.is_final}, {transcription.is_interrupt}")
             if transcription.message.strip() == "":
                 # This is often received when the person starts talking. We don't know if they will use filler word.
-                # TODO set a timer here, if transcription does not arrive on time, assume the person keeps talking and need to interrupt the bot.
-                # TODO human_speaking should be set here as this is the only place with is_final=false.
                 self.conversation.logger.info(f"Ignoring empty transcription {transcription}")
                 return
-            # TODO: rework or remove completely.
-            # # Prevent interrupt.
-            since_last_filler_time = time.time() - self.conversation.last_filler_timestamp
-            silence_since_last_action = time.time() - self.conversation.last_action_timestamp
-            if (
-                    since_last_filler_time < self.conversation.filler_audio_config.silence_threshold_seconds + BOT_TALKING_SINCE_LAST_FILLER_TIME_LIMIT
-                    or silence_since_last_action < BOT_TALKING_SINCE_LAST_ACTION_TIME_LIMIT):
-                # I could clear since_last_filler_time after first response is generated in the synthesizer, but this is complicated to detect, which audio is which.
-                bot_still_talking = True
+            self.conversation.mark_last_action_timestamp()
+            if not self.conversation.is_bot_speaking:
+                self.conversation.logger.info(f"Bot is not speaking recieved trasncript clearing queues")
+                self.conversation.broadcast_interrupt()
+
+            if transcription.is_final and self.conversation.is_bot_speaking and self.conversation.use_interrupt_agent:
+                self.conversation.interrupt_worker.input_queue.put_nowait(transcription)
+                return  # gets processed by interrupt worker.
+            if not self.conversation.use_interrupt_agent and self.conversation.is_bot_speaking:
                 self.conversation.logger.info(
-                    f'Bot still talking, because filler was said recently. since_last_filler_time: {since_last_filler_time}, silence_since_last_action: {silence_since_last_action}')
+                    f"Bot is speaking, ignoring")
+                return
 
-            else:
-                has_task = self.conversation.synthesis_results_worker.current_task is not None
-                bot_still_talking = has_task and not self.conversation.synthesis_results_worker.current_task.done() if has_task else False
-
-            if bot_still_talking and self.let_bot_finish_speaking:
-                self.conversation.logger.info(
-                    f'The user said "{transcription.message}" during the bot was talking. We are letting the bot finish speaking. Message is not sent to the agent.')
-                # Detect if the bot is talking. This may fail if the current task is done and another not started yet. But playing the audio takes most of the time.
-                return  # just ignore the transcription for now.
-
-            if bot_still_talking and self.conversation.over_talking_filler_detector:
-                self.conversation.logger.info(
-                    f'The user said "{transcription.message}" during the bot was talking. Testing to ignore filler words and confirmation words.')
-                if self.conversation.over_talking_filler_detector.detect_filler(transcription.message):
-                    return
-
-            if transcription.is_final:
-                self.conversation.logger.debug(
-                    "Got transcription {}, confidence: {}, is_final: {}".format(
-                        transcription.message, transcription.confidence, transcription.is_final
-                    )
-                )
-
-            if (
-                    not self.conversation.is_human_speaking
-                    and self.conversation.is_interrupt(transcription)
-            ):
-                self.conversation.current_transcription_is_interrupt = (
-                    self.conversation.broadcast_interrupt()
-                )
-                if self.conversation.current_transcription_is_interrupt:
-                    self.conversation.logger.debug("sending interrupt")
-
-            transcription.is_interrupt = (
-                self.conversation.current_transcription_is_interrupt
-            )
             self.conversation.is_human_speaking = not transcription.is_final
             if transcription.is_final:
-                self.conversation.mark_last_action_timestamp()
-                # we use getattr here to avoid the dependency cycle between VonageCall and StreamingConversation
-
-                event = self.interruptible_event_factory.create_interruptible_event(
-                    TranscriptionAgentInput(
-                        transcription=transcription,
-                        conversation_id=self.conversation.id,
-                        vonage_uuid=getattr(self.conversation, "vonage_uuid", None),
-                        twilio_sid=getattr(self.conversation, "twilio_sid", None),
-                    )
-                )
-                self.output_queue.put_nowait(event)
-                self.conversation.logger.info(f"USER: {transcription.message}")
+                await self.propagate_transcription(transcription)
 
     class FillerAudioWorker(InterruptibleAgentResponseWorker):
         """
@@ -311,6 +271,12 @@ class StreamingConversation(Generic[OutputDeviceType]):
                         user_message = agent_response.transcript
                         if "THIS IS SYSTEM MESSAGE:" in user_message:  # no filler if this is a system message.
                             return
+                        last_filler_time_since = time.time() - self.conversation.last_filler_timestamp
+                        if last_filler_time_since < 4:
+                            self.conversation.logger.info(
+                                f"Last filler was {last_filler_time_since} seconds ago. Skipping filler."
+                            )
+                            return
 
                         self.conversation.mark_last_filler_timestamp()
                         bot_message = self.conversation.transcript.get_last_bot_text()
@@ -344,8 +310,8 @@ class StreamingConversation(Generic[OutputDeviceType]):
                 )
                 self.conversation.mark_last_action_timestamp()  # once speech started creating.
                 end_time = time.time()
-                self.conversation.logger.info(
-                    "Getting response from Synth took {} seconds".format(end_time - start_time))
+                # self.conversation.logger.info(
+                #     "Getting response from Synth took {} seconds".format(end_time - start_time))
                 self.produce_interruptible_agent_response_event_nonblocking(
                     (agent_response_message.message, synthesis_result),
                     is_interruptible=item.is_interruptible,
@@ -398,6 +364,7 @@ class StreamingConversation(Generic[OutputDeviceType]):
                     conversation_id=self.conversation.id,
                     publish_to_events_manager=False,
                 )
+                await self.conversation.set_started_speaking()
                 message_sent, cut_off = await self.conversation.send_speech_to_output(
                     message.text,
                     synthesis_result,
@@ -433,6 +400,8 @@ class StreamingConversation(Generic[OutputDeviceType]):
                         pass
             except asyncio.CancelledError:
                 pass
+            finally:
+                await self.conversation.set_stopped_speaking()
 
     def __init__(
             self,
@@ -456,6 +425,7 @@ class StreamingConversation(Generic[OutputDeviceType]):
         )
         self.logger.info("Creating conversation")
         self.call_start = time.time()
+        self.turn_index = 0
         self.call_initial_delay = 1.5
         self.output_device = output_device
         self.transcriber = transcriber
@@ -487,6 +457,10 @@ class StreamingConversation(Generic[OutputDeviceType]):
             output_queue=self.agent.get_input_queue(),
             conversation=self,
             interruptible_event_factory=self.interruptible_event_factory,
+        )
+        self.interrupt_worker = InterruptWorker(
+            input_queue=asyncio.Queue(),
+            conversation=self
         )
         self.agent.attach_conversation_state_manager(self.state_manager)
         self.agent_responses_worker = self.AgentResponsesWorker(
@@ -545,6 +519,10 @@ class StreamingConversation(Generic[OutputDeviceType]):
             )
 
         self.is_human_speaking = False
+        self.use_interrupt_agent = self.agent.agent_config.use_interrupt_agent
+        self.bot_talking_lock = Lock()
+        self.is_bot_speaking = False
+        self.bot_last_stopped_speaking = None
         self.active = False
         self.terminate_called = False
 
@@ -563,6 +541,20 @@ class StreamingConversation(Generic[OutputDeviceType]):
         self.start_time: Optional[float] = None
         self.end_time: Optional[float] = None
         self.logger.info("Finished creating conversation")
+
+    async def set_started_speaking(self):
+        async with self.bot_talking_lock:
+            self.is_bot_speaking = True
+            self.logger.debug("Bot starts speaking.")
+
+    async def set_stopped_speaking(self):
+        async with self.bot_talking_lock:
+            self.is_bot_speaking = False
+            self.logger.debug("Bot stops speaking.")
+            self.bot_last_stopped_speaking = time.time()
+
+    def increment_turn_index(self):
+        self.turn_index += 1
 
     def create_state_manager(self) -> ConversationStateManager:
         return ConversationStateManager(conversation=self)
@@ -607,6 +599,7 @@ class StreamingConversation(Generic[OutputDeviceType]):
         self.logger.info("Starting conversation")
         self.transcriber.start()
         self.transcriptions_worker.start()
+        self.interrupt_worker.start()
         self.agent_responses_worker.start()
         self.synthesis_results_worker.start()
         self.output_device.start()
@@ -834,8 +827,8 @@ class StreamingConversation(Generic[OutputDeviceType]):
             if first_chunk:
                 generating_end_time = time.time()
                 first_chunk = False
-                self.logger.info(
-                    f"Generating first chunk took {generating_end_time - generating_start_time} seconds for message {message}")
+                # self.logger.info(
+                #     f"Generating first chunk took {generating_end_time - generating_start_time} seconds for message {message}")
 
             start_time = time.time()
             speech_length_seconds = seconds_per_chunk * (
@@ -936,6 +929,7 @@ class StreamingConversation(Generic[OutputDeviceType]):
         self.transcriber.terminate()
         self.logger.debug("Terminating transcriptions worker")
         self.transcriptions_worker.terminate()
+        self.interrupt_worker.terminate()
         self.logger.debug("Terminating final transcriptions worker")
         self.agent_responses_worker.terminate()
         self.logger.debug("Terminating synthesis results worker")

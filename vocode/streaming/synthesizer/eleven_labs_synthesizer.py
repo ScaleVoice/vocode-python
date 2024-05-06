@@ -331,21 +331,21 @@ class ElevenLabsSynthesizer(BaseSynthesizer[ElevenLabsSynthesizerConfig]):
             chunk_size: int,
             bot_sentiment: Optional[BotSentiment] = None
     ) -> SynthesisResult:
-        # if not self.ignore_cache:
-        #     cached_audio = self.get_cached_audio(message.text)
-        #     if cached_audio is not None:
-        #         async def generator():
-        #             # Ensure that chunk_size is an integer
-        #             for i in range(0, len(cached_audio), int(chunk_size)):
-        #                 is_last = i + chunk_size >= len(cached_audio)
-        #                 yield SynthesisResult.ChunkResult(cached_audio[i:i + int(chunk_size)], is_last)
-        #
-        #         return SynthesisResult(
-        #             generator(),  # should be wav
-        #             lambda seconds: self.get_message_cutoff_from_voice_speed(
-        #                 message, seconds, self.words_per_minute
-        #             ),
-        #         )
+        if not self.ignore_cache:
+            cached_audio = self.get_cached_audio(message.text)
+            if cached_audio is not None:
+                async def generator():
+                    # Ensure that chunk_size is an integer
+                    for i in range(0, len(cached_audio), int(chunk_size)):
+                        is_last = i + chunk_size >= len(cached_audio)
+                        yield SynthesisResult.ChunkResult(cached_audio[i:i + int(chunk_size)], is_last)
+
+                return SynthesisResult(
+                    generator(),  # should be wav
+                    lambda seconds: self.get_message_cutoff_from_voice_speed(
+                        message, seconds, self.words_per_minute
+                    ),
+                )
 
         response = await self.__send_request(message)
         create_speech_span = tracer.start_span(

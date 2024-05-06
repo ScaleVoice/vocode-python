@@ -67,7 +67,7 @@ class InterruptWorker(AsyncQueueWorker):
                 if self.conversation.is_bot_speaking:
                     self.conversation.broadcast_interrupt()
                     transcription.is_interrupt = True
-                    transcription.message = "<SYSTEM: INTERRUPTED ASK AGAIN LAST QUESTION OR JUST REACT TO USER'S MESSAGE> " + transcription.message
+                    transcription.message = "<SYSTEM: YOU WERE INTERRUPTED CONFIRM YOU UNDESTOOD CUSTOMER.> " + transcription.message
                     self.conversation.current_transcription_is_interrupt = True
 
                 return True

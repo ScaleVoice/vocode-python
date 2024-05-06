@@ -130,13 +130,14 @@ class StreamingConversation(Generic[OutputDeviceType]):
             self.conversation.logger.info(f"USER: {transcription.message}")
 
         async def process(self, transcription: Transcription):
+            self.conversation.mark_last_action_timestamp()
             if transcription.message.strip() == "":
                 # This is often received when the person starts talking. We don't know if they will use filler word.
                 self.conversation.logger.info(f"Ignoring empty transcription {transcription}")
                 return
-            self.conversation.mark_last_action_timestamp()
-            if not self.conversation.is_bot_speaking:
-                self.conversation.logger.info(f"Bot is not speaking recieved trasncript clearing queues")
+
+            if not self.conversation.is_human_speaking:
+                self.conversation.logger.info(f"Interrupting bot because user is speaking. {transcription.message}")
                 self.conversation.broadcast_interrupt()
 
             if transcription.is_final and self.conversation.is_bot_speaking and self.conversation.use_interrupt_agent:
@@ -365,6 +366,7 @@ class StreamingConversation(Generic[OutputDeviceType]):
                     publish_to_events_manager=False,
                 )
                 await self.conversation.set_started_speaking()
+                self.conversation.logger.info(f"item {item.is_interruptible}")
                 message_sent, cut_off = await self.conversation.send_speech_to_output(
                     message.text,
                     synthesis_result,
@@ -519,7 +521,7 @@ class StreamingConversation(Generic[OutputDeviceType]):
             )
 
         self.is_human_speaking = False
-        self.use_interrupt_agent = self.agent.agent_config.use_interrupt_agent
+        self.use_interrupt_agent = False  # self.agent.agent_config.use_interrupt_agent
         self.bot_talking_lock = Lock()
         self.is_bot_speaking = False
         self.bot_last_stopped_speaking = None
@@ -680,7 +682,7 @@ class StreamingConversation(Generic[OutputDeviceType]):
     async def check_for_idle(self):
         """Asks if user still here."""
         while self.is_active():
-            self.logger.info("Checking for idle")
+            # self.logger.info("Checking for idle")
             if time.time() - self.last_action_timestamp > (
                     self.agent.get_agent_config().allowed_idle_time_seconds
                     or ALLOWED_IDLE_TIME
@@ -746,7 +748,9 @@ class StreamingConversation(Generic[OutputDeviceType]):
         num_interrupts = 0
         while True:
             try:
+
                 interruptible_event = self.interruptible_events.get_nowait()
+                self.logger.info(f"Interrupting event {interruptible_event}")
                 if not interruptible_event.is_interrupted():
                     if interruptible_event.interrupt():
                         self.logger.debug("Interrupting event")
@@ -762,21 +766,11 @@ class StreamingConversation(Generic[OutputDeviceType]):
         self.clear_queue(self.agent.output_queue, 'agent.output_queue')
         self.clear_queue(self.agent_responses_worker.output_queue, 'agent_responses_worker.output_queue')
         self.clear_queue(self.agent_responses_worker.input_queue, 'agent_responses_worker.input_queue')
-        if hasattr(self.output_device, 'queue'):
-            self.clear_queue(self.output_device.queue, 'output_device.queue')
-        # TODO clearing of the miniaudio queue may not be needed if the task is cancelled agent_responses_worker.cancel_current_task.
-        # if isinstance(self.synthesizer, ElevenLabsSynthesizer) and self.synthesizer.miniaudio_worker is not None:
-        #     self.clear_queue(self.synthesizer.miniaudio_worker.input_queue, 'synthesizer.miniaudio_worker.input_queue')
-        #     self.clear_queue(self.synthesizer.miniaudio_worker.output_queue, 'synthesizer.miniaudio_worker.output_queue')
-        #     # stop the worker with sentinel
-        #     self.synthesizer.miniaudio_worker.consume_nonblocking(None)
 
         return num_interrupts > 0
 
     def is_interrupt(self, transcription: Transcription):
-        return transcription.confidence >= (
-                self.transcriber.get_transcriber_config().min_interrupt_confidence or 0
-        )
+        return True
 
     @staticmethod
     def clear_queue(q: asyncio.Queue, queue_name: str):
@@ -819,25 +813,25 @@ class StreamingConversation(Generic[OutputDeviceType]):
         )
         chunk_idx = 0
         seconds_spoken = 0
-
         generating_start_time = time.time()
         first_chunk = True
         async for chunk_result in synthesis_result.chunk_generator:
+            self.logger.info(f"Chunk {chunk_idx} len of chunk {len(chunk_result.chunk)}")
             self.mark_last_action_timestamp()  # once speech started consuming from synthesizer.
             if first_chunk:
                 generating_end_time = time.time()
                 first_chunk = False
-                # self.logger.info(
-                #     f"Generating first chunk took {generating_end_time - generating_start_time} seconds for message {message}")
 
             start_time = time.time()
             speech_length_seconds = seconds_per_chunk * (
                     len(chunk_result.chunk) / chunk_size
             )
             seconds_spoken = chunk_idx * seconds_per_chunk
+            self.logger.info(
+                f"Is interrupt: {stop_event} {stop_event.is_set()} Message: {message}. Speech length {speech_length_seconds} seconds. Seconds spoken {synthesis_result}")
             if stop_event.is_set():
-                self.logger.debug(
-                    "Interrupted, stopping text to speech after {} chunks".format(
+                self.logger.info(
+                    "!!! Interrupted, stopping text to speech after {} chunks".format(
                         chunk_idx
                     )
                 )

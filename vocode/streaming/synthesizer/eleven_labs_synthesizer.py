@@ -327,7 +327,10 @@ class ElevenLabsSynthesizer(BaseSynthesizer[ElevenLabsSynthesizerConfig]):
             cached_audio = self.get_cached_audio(message.text)
             if cached_audio is not None:
                 async def generator():
-                    yield SynthesisResult.ChunkResult(cached_audio, True)
+                    # Ensure that chunk_size is an integer
+                    for i in range(0, len(cached_audio), int(chunk_size)):
+                        is_last = i + chunk_size >= len(cached_audio)
+                        yield SynthesisResult.ChunkResult(cached_audio[i:i + int(chunk_size)], is_last)
 
                 return SynthesisResult(
                     generator(),  # should be wav

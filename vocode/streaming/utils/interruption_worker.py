@@ -71,10 +71,8 @@ class InterruptWorker(AsyncQueueWorker):
                     self.conversation.current_transcription_is_interrupt = True
 
                 return True
-            if (is_interrupt and self.conversation.bot_last_stopped_speaking and
-                    (time.time() - self.conversation.bot_last_stopped_speaking) < 0.2 and
+            if (is_interrupt and not self.conversation.is_bot_speaking and
                     not self.conversation.is_human_speaking):
-                # we don't interrupt but only propagate the transcription if the bot has stopped speaking.
                 return True
             return False
         else:

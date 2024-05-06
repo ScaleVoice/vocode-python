@@ -214,7 +214,7 @@ class ElevenLabsSynthesizer(BaseSynthesizer[ElevenLabsSynthesizerConfig]):
                 chunk = audioop.ulaw2lin(chunk, 2)
             audio_buffer += chunk
             full_audio += chunk
-
+            # FIXME: is last might be wrong.
             while len(audio_buffer) >= chunk_size:
                 yield SynthesisResult.ChunkResult(audio_buffer[:chunk_size], False)
                 audio_buffer = audio_buffer[chunk_size:]

@@ -203,7 +203,6 @@ class ElevenLabsSynthesizer(BaseSynthesizer[ElevenLabsSynthesizerConfig]):
                                                              message: BaseMessage,
                                                              chunk_size: int) -> AsyncGenerator[
         SynthesisResult.ChunkResult, None]:
-        audio_buffer = b''
         full_audio = b''
         response: aiohttp.ClientResponse
         stream_reader = response.content
@@ -212,15 +211,10 @@ class ElevenLabsSynthesizer(BaseSynthesizer[ElevenLabsSynthesizerConfig]):
         async for chunk in stream_reader.iter_any():
             if self.output_format == ELEVEN_LABS_MULAW_8000 and self.synthesizer_config.audio_encoding == AudioEncoding.LINEAR16:
                 chunk = audioop.ulaw2lin(chunk, 2)
-            audio_buffer += chunk
             full_audio += chunk
-            # FIXME: is last might be wrong.
-            while len(audio_buffer) >= chunk_size:
-                yield SynthesisResult.ChunkResult(audio_buffer[:chunk_size], False)
-                audio_buffer = audio_buffer[chunk_size:]
-
-        if audio_buffer:
-            yield SynthesisResult.ChunkResult(audio_buffer, True)
+            for i in range(0, len(chunk), chunk_size):
+                is_last = i + chunk_size >= len(chunk)
+                yield SynthesisResult.ChunkResult(chunk[i:i + chunk_size], is_last)
 
         self.logger.info(f"Saving audio for message: {message.text}")
         await self.save_audio_to_cache(full_audio, message.text)

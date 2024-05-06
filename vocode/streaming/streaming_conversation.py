@@ -818,17 +818,12 @@ class StreamingConversation(Generic[OutputDeviceType]):
             self.synthesizer.get_synthesizer_config().sampling_rate,
         )
         chunk_idx = 0
-        seconds_spoken = 0
 
-        generating_start_time = time.time()
         first_chunk = True
         async for chunk_result in synthesis_result.chunk_generator:
             self.mark_last_action_timestamp()  # once speech started consuming from synthesizer.
             if first_chunk:
-                generating_end_time = time.time()
                 first_chunk = False
-                # self.logger.info(
-                #     f"Generating first chunk took {generating_end_time - generating_start_time} seconds for message {message}")
 
             start_time = time.time()
             speech_length_seconds = seconds_per_chunk * (

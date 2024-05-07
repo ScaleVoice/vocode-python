@@ -200,22 +200,24 @@ class ElevenLabsSynthesizer(BaseSynthesizer[ElevenLabsSynthesizerConfig]):
         return result
 
     async def experimental_direct_streaming_output_generator(self, response: aiohttp.ClientResponse,
-                                                             message: BaseMessage) -> AsyncGenerator[
+                                                             message: BaseMessage,
+                                                             chunk_size: int) -> AsyncGenerator[
         SynthesisResult.ChunkResult, None]:
-        accumulated_audio_chunks = []
+        full_audio = b''
         response: aiohttp.ClientResponse
         stream_reader = response.content
+        chunk_size = int(chunk_size)
         # Chunked as they come from Elevenlabs
         async for chunk in stream_reader.iter_any():
-            accumulated_audio_chunks.append(chunk)
             if self.output_format == ELEVEN_LABS_MULAW_8000 and self.synthesizer_config.audio_encoding == AudioEncoding.LINEAR16:
                 chunk = audioop.ulaw2lin(chunk, 2)
+            full_audio += chunk
+            for i in range(0, len(chunk), chunk_size):
+                is_last = i + chunk_size >= len(chunk)
+                yield SynthesisResult.ChunkResult(chunk[i:i + chunk_size], is_last)
 
-            yield SynthesisResult.ChunkResult(chunk, True)
-
-        complete_audio_data = b''.join(accumulated_audio_chunks)
         self.logger.info(f"Saving audio for message: {message.text}")
-        await self.save_audio_to_cache(complete_audio_data, message.text)
+        await self.save_audio_to_cache(full_audio, message.text)
 
     async def experimental_mp3_streaming_output_generator(
             self,
@@ -327,7 +329,10 @@ class ElevenLabsSynthesizer(BaseSynthesizer[ElevenLabsSynthesizerConfig]):
             cached_audio = self.get_cached_audio(message.text)
             if cached_audio is not None:
                 async def generator():
-                    yield SynthesisResult.ChunkResult(cached_audio, True)
+                    # Ensure that chunk_size is an integer
+                    for i in range(0, len(cached_audio), int(chunk_size)):
+                        is_last = i + chunk_size >= len(cached_audio)
+                        yield SynthesisResult.ChunkResult(cached_audio[i:i + int(chunk_size)], is_last)
 
                 return SynthesisResult(
                     generator(),  # should be wav
@@ -344,7 +349,7 @@ class ElevenLabsSynthesizer(BaseSynthesizer[ElevenLabsSynthesizerConfig]):
             if self.output_format == ELEVEN_LABS_MULAW_8000:
                 return SynthesisResult(
                     self.experimental_direct_streaming_output_generator(
-                        response, message
+                        response, message, chunk_size
                     ),  # should be wav
                     lambda seconds: self.get_message_cutoff_from_voice_speed(
                         message, seconds, self.words_per_minute

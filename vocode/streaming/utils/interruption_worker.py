@@ -67,15 +67,10 @@ class InterruptWorker(AsyncQueueWorker):
                 if self.conversation.is_bot_speaking:
                     self.conversation.broadcast_interrupt()
                     transcription.is_interrupt = True
-                    transcription.message = "<SYSTEM: INTERRUPTED ASK AGAIN LAST QUESTION OR JUST REACT TO USER'S MESSAGE> " + transcription.message
+                    transcription.message = "<SYSTEM: YOU WERE INTERRUPTED CONFIRM YOU UNDERSTOOD CUSTOMER. DON'T REPEAT YOURSELF. IF YOU NEED TO CLARIFY REPHRASE THE QUESTION.> " + transcription.message
                     self.conversation.current_transcription_is_interrupt = True
 
                 return True
-            if (is_interrupt and self.conversation.bot_last_stopped_speaking and
-                    (time.time() - self.conversation.bot_last_stopped_speaking) < 0.2 and
-                    not self.conversation.is_human_speaking):
-                # we don't interrupt but only propagate the transcription if the bot has stopped speaking.
-                return True
-            return False
+            return is_interrupt and not self.conversation.is_bot_speaking
         else:
             return await self.simple_interrupt(transcription)

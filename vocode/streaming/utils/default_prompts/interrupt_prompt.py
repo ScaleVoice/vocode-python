@@ -75,4 +75,5 @@ IF the customer is saying some information about his situation, assume interrupt
 
 Example of output:
 {"interrupt": "true"}
+NEVER RETURN ANYTHING ELSE THAT IS NOT JSON. 
 """

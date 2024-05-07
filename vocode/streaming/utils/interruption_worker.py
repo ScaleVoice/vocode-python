@@ -71,9 +71,6 @@ class InterruptWorker(AsyncQueueWorker):
                     self.conversation.current_transcription_is_interrupt = True
 
                 return True
-            if (is_interrupt and not self.conversation.is_bot_speaking and
-                    not self.conversation.is_human_speaking):
-                return True
-            return False
+            return is_interrupt and not self.conversation.is_bot_speaking
         else:
             return await self.simple_interrupt(transcription)

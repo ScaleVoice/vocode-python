@@ -32,15 +32,17 @@ class InterruptWorker(AsyncQueueWorker):
                 {"role": "assistant", "content": last_bot_message},
             ]
         }
+        message = None
         try:
             response = await openai.ChatCompletion.acreate(**chat_parameters)
-            decision = json.loads(response['choices'][0]['message']['content'].strip().lower())
+            message = response['choices'][0]['message']['content']
+            decision = json.loads(message)
             self.conversation.logger.info(f"Decision: {decision}")
             return decision['interrupt'] == 'true'
 
         except Exception as e:
             # Log the exception or handle it as per your error handling policy
-            self.conversation.logger.error(f"Error in GPT-3.5 API call: {str(e)}")
+            self.conversation.logger.error(f"Error in GPT-3.5 API call: {str(e)}. Message {message}")
             return False
 
     async def simple_interrupt(self, transcription: Transcription) -> bool:
@@ -67,7 +69,9 @@ class InterruptWorker(AsyncQueueWorker):
                 if self.conversation.is_bot_speaking:
                     self.conversation.broadcast_interrupt()
                     transcription.is_interrupt = True
-                    transcription.message = "<SYSTEM: YOU WERE INTERRUPTED CONFIRM YOU UNDERSTOOD CUSTOMER. DON'T REPEAT YOURSELF. IF YOU NEED TO CLARIFY REPHRASE THE QUESTION. CONFIRM WITH VERY SHORT STATMENT YOU UNDESTOOD> " + transcription.message
+                    prefix = self.conversation.agent.agent_config.interrupt_agent_transcript_prompt_prefix
+                    prefix = prefix if prefix else ""
+                    transcription.message = prefix + transcription.message
                     self.conversation.current_transcription_is_interrupt = True
 
                 return True

@@ -81,7 +81,7 @@ class AgentConfig(TypedModel, type=AgentType.BASE.value):
     use_interrupt_agent: bool = False
     interrupt_agent_prompt: Optional[str] = None
     interrupt_agent_transcript_prompt_prefix: Optional[
-        str] = "<SYSTEM: YOU WERE INTERRUPTED CONFIRM YOU UNDERSTOOD CUSTOMER. DON'T REPEAT YOURSELF. IF YOU NEED TO CLARIFY REPHRASE THE QUESTION. CONFIRM WITH VERY SHORT STATMENT YOU UNDESTOOD> "
+        str] = "" #"<SYSTEM: YOU WERE INTERRUPTED CONFIRM WITH VERY SHORT STATMENT YOU UNDESTOOD WHAT CUSTOMER SAID. DON'T REPEAT YOURSELF SO IF YOU NEED TO CLARIFY REPHRASE THE QUESTION. FOLLOW THIS RULES ONLY > "
 
     initial_audio_path: Optional[str] = None  # path to audio file.
     # Filler picker specials

@@ -27,7 +27,7 @@ class InterruptWorker(AsyncQueueWorker):
         chat_parameters = {
             "model": model,
             "messages": [
-                {"role": "system", "content": INTERRUPTION_PROMPT},
+                {"role": "system", "content": self.prompt},
                 {"role": "user", "content": transcript_message},
                 {"role": "assistant", "content": last_bot_message},
             ]

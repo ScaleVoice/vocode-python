@@ -36,9 +36,10 @@ class InterruptWorker(AsyncQueueWorker):
         try:
             response = await openai.ChatCompletion.acreate(**chat_parameters)
             message = response['choices'][0]['message']['content']
-            decision = json.loads(message)
+            #FIXME: LLAMA sometimes ignores instruction to return json.
+            decision = "true" in message #json.loads(message)
             self.conversation.logger.info(f"Decision: {decision}")
-            return decision['interrupt'] == 'true'
+            return decision#['interrupt'] == 'true'
 
         except Exception as e:
             # Log the exception or handle it as per your error handling policy

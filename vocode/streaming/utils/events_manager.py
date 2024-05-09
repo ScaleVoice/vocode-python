@@ -108,13 +108,11 @@ class RedisEventsManager(EventsManager):
             await self.handle_event(event)
 
 
-async def dump_transcript_api(transcript: dict):
+async def dump_transcript_api(transcript: dict, url: str, key: str):
     """
     POST transcript to API
     :param transcript: transcript dictionary to be posted
     """
-    url = os.environ['TRANSCRIPT_API_URL']
-    key = os.environ['TRANSCRIPT_API_KEY']
     headers = {
         'X-API-Key': key,
         'Content-Type': 'application/json'  # Make sure to set the content type for JSON
@@ -137,4 +135,3 @@ async def dump_transcript_api(transcript: dict):
                     await asyncio.sleep(5)
                 else:
                     logger.error("Max retries reached, giving up.")
-

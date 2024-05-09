@@ -880,10 +880,11 @@ class StreamingConversation(Generic[OutputDeviceType]):
         self.broadcast_interrupt()
         api_key = os.getenv("TRANSCRIPT_API_KEY", None)
         api_url = os.getenv("TRANSCRIPT_API_URL", None)
+        complete_transcript = TranscriptCompleteEvent(conversation_id=self.id, transcript=self.transcript)
         if api_key and api_url:
             self.logger.info("Sending transcript to API")
-            transcript_url = f'{api_url}/{self.id}'
-            await dump_transcript_api(transcript=self.transcript.dict(), key=api_key, url=transcript_url)
+            transcript_url = f'{api_url}/{self.id}/'
+            await dump_transcript_api(transcript=complete_transcript.json(), key=api_key, url=transcript_url)
 
         self.events_manager.publish_event(
             TranscriptCompleteEvent(conversation_id=self.id, transcript=self.transcript)

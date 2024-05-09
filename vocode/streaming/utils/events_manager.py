@@ -6,11 +6,13 @@ import os
 import time
 from typing import List, Optional
 
+import aiohttp
 from redis.asyncio import Redis
 
 from vocode.streaming.models.events import Event, EventType
 from vocode.streaming.models.model import BaseModel
 
+logger = logging.getLogger(__name__)
 
 class ConversationLog(BaseModel):
     conversation_id: str
@@ -108,7 +110,7 @@ class RedisEventsManager(EventsManager):
             await self.handle_event(event)
 
 
-async def dump_transcript_api(transcript: dict, url: str, key: str):
+async def dump_transcript_api(transcript: str, url: str, key: str):
     """
     POST transcript to API
     :param transcript: transcript dictionary to be posted

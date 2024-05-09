@@ -878,6 +878,13 @@ class StreamingConversation(Generic[OutputDeviceType]):
         self.mark_terminated()
         self.terminate_called = True
         self.broadcast_interrupt()
+        api_key = os.getenv("TRANSCRIPT_API_KEY", None)
+        api_url = os.getenv("TRANSCRIPT_API_URL", None)
+        if api_key and api_url:
+            self.logger.info("Sending transcript to API")
+            transcript_url = f'{api_url}/{self.id}'
+            await dump_transcript_api(transcript=self.transcript.dict(), key=api_key, url=transcript_url)
+
         self.events_manager.publish_event(
             TranscriptCompleteEvent(conversation_id=self.id, transcript=self.transcript)
         )
@@ -887,11 +894,7 @@ class StreamingConversation(Generic[OutputDeviceType]):
         if self.audio_stream_handler.vad_wrapper:
             self.audio_stream_handler.vad_wrapper.reset_states()
             self.logger.info("Reset VAD model states")
-        api_key = os.getenv("TRANSCRIPT_API_KEY", None)
-        api_url = os.getenv("TRANSCRIPT_API_URL", None)
-        if api_key and api_url:
-            self.logger.info("Sending transcript to API")
-            await dump_transcript_api(transcript=self.transcript.dict(), key=api_key, url=api_url)
+
 
 
         if self.check_for_idle_task:

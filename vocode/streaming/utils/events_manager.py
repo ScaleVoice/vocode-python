@@ -123,10 +123,13 @@ async def dump_transcript_api(transcript: str, url: str, key: str):
     async with aiohttp.ClientSession() as session:
         for attempt in range(5):  # make 5 retries
             try:
-                async with session.post(url, json=transcript, headers=headers) as response:
+                async with session.post(url, data=transcript, headers=headers) as response:
                     if response.status == 200:
                         data = await response.json()
                         return data
+                    elif response.status == 404:
+                        logger.warning("Failed to post transcript: HTTP 404. Call id was not found. Saved to EventLog.")
+                        return None
                     else:
                         logger.warning(f"Failed to post transcript: HTTP {response.status}")
                         await asyncio.sleep(5)  # Wait for 5 seconds before retrying

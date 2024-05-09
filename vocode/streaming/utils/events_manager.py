@@ -106,3 +106,35 @@ class RedisEventsManager(EventsManager):
             except asyncio.QueueEmpty:
                 await asyncio.sleep(0.1)
             await self.handle_event(event)
+
+
+async def dump_transcript_api(transcript: dict):
+    """
+    POST transcript to API
+    :param transcript: transcript dictionary to be posted
+    """
+    url = os.environ['TRANSCRIPT_API_URL']
+    key = os.environ['TRANSCRIPT_API_KEY']
+    headers = {
+        'X-API-Key': key,
+        'Content-Type': 'application/json'  # Make sure to set the content type for JSON
+    }
+
+    async with aiohttp.ClientSession() as session:
+        for attempt in range(5):  # make 5 retries
+            try:
+                async with session.post(url, json=transcript, headers=headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data
+                    else:
+                        logger.warning(f"Failed to post transcript: HTTP {response.status}")
+                        await asyncio.sleep(5)  # Wait for 5 seconds before retrying
+            except Exception as e:
+                logger.error(f"Error occurred: {e}")
+                if attempt < 4:  # Check if it's not the last attempt
+                    logger.info("Retrying in 5 seconds...")
+                    await asyncio.sleep(5)
+                else:
+                    logger.error("Max retries reached, giving up.")
+

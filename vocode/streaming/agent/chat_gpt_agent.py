@@ -93,17 +93,15 @@ class ChatGPTAgent(RespondAgent[ChatGPTAgentConfig]):
             agent_config=agent_config, action_factory=action_factory, logger=logger
         )
         if agent_config.azure_params:
-            openai.api_type = agent_config.azure_params.api_type
-            openai.api_base = getenv("AZURE_OPENAI_API_BASE")
-            openai.api_version = agent_config.azure_params.api_version
-            openai.api_key = getenv("AZURE_OPENAI_API_KEY")
             if agent_config.chat_gpt_functions_config.api_version is None:
                 agent_config.chat_gpt_functions_config.api_version = "2023-07-01-preview"  # functions must have this or higher to work
+            self.client = openai.AsyncAzureOpenAI(
+                api_version=agent_config.azure_params.api_version,
+                azure_endpoint=getenv("AZURE_OPENAI_API_BASE"),
+                api_key=getenv("AZURE_OPENAI_API_KEY"),
+            )
         else:
-            openai.api_type = "open_ai"
-            openai.api_base = "https://api.openai.com/v1"
-            openai.api_version = None
-            openai.api_key = openai_api_key or getenv("OPENAI_API_KEY")
+            self.client = openai.AsyncOpenAI(api_key=openai_api_key or getenv("OPENAI_API_KEY"))
         if not openai.api_key:
             raise ValueError("OPENAI_API_KEY must be set in environment or passed in")
         self.first_response = (
@@ -337,12 +335,10 @@ class ChatGPTAgent(RespondAgent[ChatGPTAgentConfig]):
     async def get_normalized_values(self, content: str, keys_to_normalize: List[str]) -> dict[str, Any]:
         chat_parameters = self.get_chat_parameters(normalize=True, keys_to_normalize=keys_to_normalize)
         # TODO: discuss configs.
-        chat_parameters["api_version"] = self.agent_config.chat_gpt_functions_config.api_version  # TODO: refactor it.
         chat_parameters["n"] = 3
-
         chat_parameters["messages"] = [chat_parameters["messages"][0]] + [{"role": "user", "content": content}]
         chat_parameters["messages"] = self.trim_messages_to_fit(chat_parameters["messages"])
-        chat_completion = await openai.ChatCompletion.acreate(**chat_parameters)
+        chat_completion = await self.client.chat.completions.create(**chat_parameters)
 
         self.last_chat_parameters_normalization = chat_parameters
 
@@ -372,7 +368,7 @@ class ChatGPTAgent(RespondAgent[ChatGPTAgentConfig]):
 
         chat_parameters["messages"] = self.trim_messages_to_fit(chat_parameters["messages"])
         # Call the model
-        chat_completion = await openai.ChatCompletion.acreate(**chat_parameters)
+        chat_completion = await self.client.chat.completions.create(**chat_parameters)
         self.last_chat_parameters_dialog_state_update = chat_parameters
         return self._parse_dialog_state(chat_completion.choices[0].message.function_call.arguments)
 
@@ -394,7 +390,7 @@ class ChatGPTAgent(RespondAgent[ChatGPTAgentConfig]):
         # It would be nice to have flexiblity to connect more to previous context also with `combined_response`, but here we prefer to reset the state instead for now.
         chat_parameters["messages"] = [chat_parameters["messages"][0]]
 
-        stream = await openai.ChatCompletion.acreate(**chat_parameters)
+        stream = await self.client.chat.completions.create(**chat_parameters)
         async for message in collate_response_async(
                 openai_get_tokens(stream), get_functions=True
         ):
@@ -462,7 +458,7 @@ class ChatGPTAgent(RespondAgent[ChatGPTAgentConfig]):
         parameters.update(messages=messages)
 
         if self.agent_config.azure_params is not None:
-            parameters["engine"] = self.agent_config.azure_params.engine
+            parameters["model"] = self.agent_config.azure_params.engine
         else:
             parameters["model"] = self.agent_config.model_name
 
@@ -476,7 +472,7 @@ class ChatGPTAgent(RespondAgent[ChatGPTAgentConfig]):
                    ) + ([{"role": "user", "content": first_prompt}] if first_prompt is not None else [])
 
         parameters = self.get_chat_parameters(messages)
-        return openai.ChatCompletion.create(**parameters)
+        return self.client.chat.completions.create(**parameters)
 
     def attach_transcript(self, transcript: Transcript):
         self.transcript = transcript
@@ -499,7 +495,7 @@ class ChatGPTAgent(RespondAgent[ChatGPTAgentConfig]):
             text = self.first_response
         else:
             chat_parameters = self.get_chat_parameters()
-            chat_completion = await openai.ChatCompletion.acreate(**chat_parameters)
+            chat_completion = await self.client.chat.completions.create(**chat_parameters)
             text = chat_completion.choices[0].message.content
         self.logger.debug(f"LLM response: {text}")
         end = time.time()
@@ -571,7 +567,7 @@ class ChatGPTAgent(RespondAgent[ChatGPTAgentConfig]):
         chat_parameters["messages"][0]["content"] = re.sub(r'(\n\s*){2,}\n', '\n\n',
                                                            chat_parameters["messages"][0]["content"]).strip()
         chat_parameters["messages"] = self.trim_messages_to_fit(chat_parameters["messages"])
-        stream = await openai.ChatCompletion.acreate(**chat_parameters)
+        stream = await self.client.chat.completions.create(**chat_parameters)
         self.last_chat_parameters_text = chat_parameters
 
         async for message in collate_response_async(
@@ -594,15 +590,13 @@ class ChatGPTAgentOld(RespondAgent[ChatGPTAgentConfigOLD]):
             agent_config=agent_config, action_factory=action_factory, logger=logger
         )
         if agent_config.azure_params:
-            openai.api_type = agent_config.azure_params.api_type
-            openai.api_base = getenv("AZURE_OPENAI_API_BASE")
-            openai.api_version = agent_config.azure_params.api_version
-            openai.api_key = getenv("AZURE_OPENAI_API_KEY")
+            self.client = openai.AsyncAzureOpenAI(
+                api_version=agent_config.azure_params.api_version,
+                azure_endpoint=getenv("AZURE_OPENAI_API_BASE"),
+                api_key=getenv("AZURE_OPENAI_API_KEY"),
+            )
         else:
-            openai.api_type = "open_ai"
-            openai.api_base = "https://api.openai.com/v1"
-            openai.api_version = None
-            openai.api_key = openai_api_key or getenv("OPENAI_API_KEY")
+            self.client = openai.AsyncOpenAI(api_key=openai_api_key or getenv("OPENAI_API_KEY"))
         if not openai.api_key:
             raise ValueError("OPENAI_API_KEY must be set in environment or passed in")
         self.first_response = None
@@ -640,12 +634,12 @@ class ChatGPTAgentOld(RespondAgent[ChatGPTAgentConfigOLD]):
         }
 
         if self.agent_config.azure_params is not None:
-            parameters["engine"] = self.agent_config.azure_params.engine
+            parameters["model"] = self.agent_config.azure_params.engine
         else:
             parameters["model"] = self.agent_config.model_name
 
         if use_functions and self.functions:
-            parameters["functions"] = self.functions
+            parameters["tools"] = self.functions
 
         return parameters
 
@@ -666,7 +660,7 @@ class ChatGPTAgentOld(RespondAgent[ChatGPTAgentConfigOLD]):
         parameters = self.get_chat_parameters(messages, ignore_assert=True)
         parameters["stream"] = False
         self.logger.info('Attempting create response for the first message.')
-        chat_completion = await openai.ChatCompletion.acreate(**parameters)
+        chat_completion = await self.client.chat.completions.create(**parameters)
         return chat_completion.choices[0].message.content
 
     def attach_transcript(self, transcript: Transcript):
@@ -689,7 +683,7 @@ class ChatGPTAgentOld(RespondAgent[ChatGPTAgentConfigOLD]):
             text = self.first_response
         else:
             chat_parameters = self.get_chat_parameters()
-            chat_completion = await openai.ChatCompletion.acreate(**chat_parameters)
+            chat_completion = await self.client.chat.completions.create(**chat_parameters)
             text = chat_completion.choices[0].message.content
         self.logger.debug(f"LLM response: {text}")
         return text, False
@@ -699,7 +693,7 @@ class ChatGPTAgentOld(RespondAgent[ChatGPTAgentConfigOLD]):
             # Create the chat stream
             self.logger.info('attempt_stream_response')
             stream = await asyncio.wait_for(
-                openai.ChatCompletion.acreate(**chat_parameters),
+                self.client.chat.completions.create(**chat_parameters),
                 timeout=self.agent_config.timeout_generator_seconds
             )
             self.logger.info('have attempt_stream_response')

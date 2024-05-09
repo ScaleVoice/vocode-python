@@ -29,14 +29,15 @@ class GoodbyeModel:
         ),
         openai_api_key: Optional[str] = None,
     ):
-        openai.api_type = "azure"
-        openai.api_base = os.environ["AZURE_OPENAI_API_BASE"]
-        openai.api_version = "2023-05-15"
-        openai.api_key = os.environ['AZURE_OPENAI_API_KEY']
-
-        # openai.api_key = openai_api_key or getenv("OPENAI_API_KEY")
-        if not openai.api_key:
-            raise ValueError("OPENAI_API_KEY must be set in environment or passed in")
+        api_key = os.environ['AZURE_OPENAI_API_KEY']
+        # api_key = openai_api_key or getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("AZURE_OPENAI_API_KEY must be set in environment or passed in")
+        self.client = openai.AsyncAzureOpenAI(
+            api_key=api_key,
+            api_version="2023-05-15",
+            base_url=os.environ["AZURE_OPENAI_API_BASE"],
+        )
         self.embeddings_cache_path = embeddings_cache_path
         self.goodbye_embeddings: Optional[np.ndarray] = self.load_or_create_embeddings(
             f"{self.embeddings_cache_path}/goodbye_embeddings.npy"
@@ -74,16 +75,11 @@ class GoodbyeModel:
     async def create_embedding(self, text) -> np.ndarray:
         params = {
             "input": text,
+            "model": getenv("AZURE_OPENAI_TEXT_EMBEDDING_ENGINE") or "text-embedding-ada-002",
         }
 
-        engine = getenv("AZURE_OPENAI_TEXT_EMBEDDING_ENGINE")
-        if engine:
-            params["engine"] = engine
-        else:
-            params["model"] = "text-embedding-ada-002"
-
         return np.array(
-            (await openai.Embedding.acreate(**params))["data"][0]["embedding"]
+            (await self.client.embeddings.create(**params)).data[0].embedding
         )
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import queue
@@ -871,6 +872,18 @@ class StreamingConversation(Generic[OutputDeviceType]):
     def mark_terminated(self):
         self.active = False
 
+    def save_transcript(self, transcript_json: str):
+        transcript_path = os.getenv("TRANSCRIPT_PATH", None)
+        if transcript_path:
+            # check if path exists
+            if not os.path.exists(transcript_path):
+                self.logger.info(f"Path {transcript_path} does not exist. Skipping.")
+                return
+            self.logger.info("Saving transcript to file")
+            path = os.path.join(transcript_path, f"{self.id}.json")
+            with open(path, 'w') as f:
+                json.dump(transcript_json, f)
+
     async def terminate(self):
         if self.terminate_called:
             self.logger.warning("Terminate already called. Ignoring.")
@@ -885,7 +898,7 @@ class StreamingConversation(Generic[OutputDeviceType]):
             self.logger.info("Sending transcript to API")
             transcript_url = f'{api_url}/{self.id}/'
             await dump_transcript_api(transcript=complete_transcript.json(), key=api_key, url=transcript_url)
-
+        self.save_transcript(complete_transcript.json())
         self.events_manager.publish_event(
             TranscriptCompleteEvent(conversation_id=self.id, transcript=self.transcript)
         )
@@ -895,8 +908,6 @@ class StreamingConversation(Generic[OutputDeviceType]):
         if self.audio_stream_handler.vad_wrapper:
             self.audio_stream_handler.vad_wrapper.reset_states()
             self.logger.info("Reset VAD model states")
-
-
 
         if self.check_for_idle_task:
             self.logger.debug("Terminating check_for_idle Task")

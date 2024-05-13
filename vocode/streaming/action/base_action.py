@@ -50,7 +50,10 @@ class BaseAction(Generic[ActionConfigType, ParametersType, ResponseType]):
         raise NotImplementedError
 
     def get_openai_function(self):
-        parameters_schema = self.parameters_type.schema()
+        if hasattr(self.parameters_type, "schema_from_config"):
+            parameters_schema = self.parameters_type.schema_from_config(self.action_config)
+        else:
+            parameters_schema = self.parameters_type.schema()
         parameters_schema = exclude_keys_recursive(parameters_schema, {"title"})
         if self.should_respond:
             parameters_schema["properties"][

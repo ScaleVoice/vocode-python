@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
 import queue
 import threading
 import time
@@ -56,7 +58,7 @@ from vocode.streaming.transcriber.base_transcriber import (
 )
 from vocode.streaming.utils import create_conversation_id, get_chunk_size_per_second
 from vocode.streaming.utils.conversation_logger_adapter import wrap_logger
-from vocode.streaming.utils.events_manager import EventsManager, RedisEventsManager
+from vocode.streaming.utils.events_manager import EventsManager, RedisEventsManager, dump_transcript_api
 from vocode.streaming.utils.interruption_worker import InterruptWorker
 from vocode.streaming.utils.state_manager import ConversationStateManager
 from vocode.streaming.utils.worker import (
@@ -870,6 +872,18 @@ class StreamingConversation(Generic[OutputDeviceType]):
     def mark_terminated(self):
         self.active = False
 
+    def save_transcript(self, transcript_json: str):
+        transcript_path = os.getenv("TRANSCRIPT_PATH", None)
+        if transcript_path:
+            # check if path exists
+            if not os.path.exists(transcript_path):
+                self.logger.info(f"Path {transcript_path} does not exist. Skipping.")
+                return
+            self.logger.info("Saving transcript to file")
+            path = os.path.join(transcript_path, f"{self.id}.json")
+            with open(path, 'w') as f:
+                json.dump(transcript_json, f)
+
     async def terminate(self):
         if self.terminate_called:
             self.logger.warning("Terminate already called. Ignoring.")
@@ -877,6 +891,14 @@ class StreamingConversation(Generic[OutputDeviceType]):
         self.mark_terminated()
         self.terminate_called = True
         self.broadcast_interrupt()
+        api_key = os.getenv("TRANSCRIPT_API_KEY", None)
+        api_url = os.getenv("TRANSCRIPT_API_URL", None)
+        complete_transcript = TranscriptCompleteEvent(conversation_id=self.id, transcript=self.transcript)
+        if api_key and api_url:
+            self.logger.info("Sending transcript to API")
+            transcript_url = f'{api_url}/{self.id}/'
+            await dump_transcript_api(transcript=complete_transcript.json(), key=api_key, url=transcript_url)
+        self.save_transcript(complete_transcript.json())
         self.events_manager.publish_event(
             TranscriptCompleteEvent(conversation_id=self.id, transcript=self.transcript)
         )
@@ -886,9 +908,7 @@ class StreamingConversation(Generic[OutputDeviceType]):
         if self.audio_stream_handler.vad_wrapper:
             self.audio_stream_handler.vad_wrapper.reset_states()
             self.logger.info("Reset VAD model states")
-        if self.redis_event_manger is not None:
-            self.redis_event_manger.publish_event(
-                TranscriptCompleteEvent(conversation_id=self.id, transcript=self.transcript))
+
         if self.check_for_idle_task:
             self.logger.debug("Terminating check_for_idle Task")
             self.check_for_idle_task.cancel()

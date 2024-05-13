@@ -6,11 +6,13 @@ import os
 import time
 from typing import List, Optional
 
+import aiohttp
 from redis.asyncio import Redis
 
 from vocode.streaming.models.events import Event, EventType
 from vocode.streaming.models.model import BaseModel
 
+logger = logging.getLogger(__name__)
 
 class ConversationLog(BaseModel):
     conversation_id: str
@@ -106,3 +108,35 @@ class RedisEventsManager(EventsManager):
             except asyncio.QueueEmpty:
                 await asyncio.sleep(0.1)
             await self.handle_event(event)
+
+
+async def dump_transcript_api(transcript: str, url: str, key: str):
+    """
+    POST transcript to API
+    :param transcript: transcript dictionary to be posted
+    """
+    headers = {
+        'X-API-Key': key,
+        'Content-Type': 'application/json'  # Make sure to set the content type for JSON
+    }
+
+    async with aiohttp.ClientSession() as session:
+        for attempt in range(5):  # make 5 retries
+            try:
+                async with session.post(url, data=transcript, headers=headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data
+                    elif response.status == 404:
+                        logger.warning("Failed to post transcript: HTTP 404. Call id was not found. Saved to EventLog.")
+                        return None
+                    else:
+                        logger.warning(f"Failed to post transcript: HTTP {response.status}")
+                        await asyncio.sleep(5)  # Wait for 5 seconds before retrying
+            except Exception as e:
+                logger.error(f"Error occurred: {e}")
+                if attempt < 4:  # Check if it's not the last attempt
+                    logger.info("Retrying in 5 seconds...")
+                    await asyncio.sleep(5)
+                else:
+                    logger.error("Max retries reached, giving up.")

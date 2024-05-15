@@ -3,7 +3,7 @@ import re
 import string
 from dataclasses import dataclass
 from typing import List, Optional, Tuple, Union
-
+#FIXME: remove it
 WEEKDAYS = {
     1: "v pondělí",
     2: "v úterý",

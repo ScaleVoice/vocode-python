@@ -17,6 +17,8 @@ class InterruptWorker(AsyncQueueWorker):
         super().__init__(input_queue)
         self.conversation = conversation
         self.prompt = prompt if prompt else INTERRUPTION_PROMPT
+        # FIXME: pass in the API key and base URL
+        self.client = openai.AsyncOpenAI()
 
     async def classify_transcription(self, transcription: Transcription) -> bool:
         last_bot_message = self.conversation.transcript.get_last_bot_text()
@@ -34,8 +36,8 @@ class InterruptWorker(AsyncQueueWorker):
         }
         message = None
         try:
-            response = await openai.ChatCompletion.acreate(**chat_parameters)
-            message = response['choices'][0]['message']['content']
+            response = await self.client.chat.completions.create(**chat_parameters)
+            message = response.choices[0].message.content
             #FIXME: LLAMA sometimes ignores instruction to return json.
             decision = "true" in message #json.loads(message)
             self.conversation.logger.info(f"Decision: {decision}")

@@ -27,13 +27,12 @@ class LLAMA3Agent(RespondAgent[LLAMA3AgentConfig]):
         super().__init__(
             agent_config=agent_config, action_factory=action_factory, logger=logger
         )
-
-        openai.api_type = "open_ai"
-        openai.api_base = agent_config.api_base
-        openai.api_version = None
-        openai.api_key = api_key or getenv("LLAMA3_API_KEY")
         if not openai.api_key:
             raise ValueError("OPENAI_API_KEY must be set in environment or passed in")
+        self.client = openai.AsyncClient(
+            api_key=api_key or getenv("LLAMA3_API_KEY"),
+            base_url=agent_config.api_base,
+        )
         self.first_response = None
         self.is_first_response = True
 
@@ -69,7 +68,7 @@ class LLAMA3Agent(RespondAgent[LLAMA3AgentConfig]):
         parameters = self.get_chat_parameters(messages)
         parameters["stream"] = True
         self.logger.info('Attempting to stream response for first message.')
-        stream = await openai.ChatCompletion.acreate(**parameters)
+        stream = await self.client.chat.completions.create(**parameters)
         async for message in llama3_collate_response_async(
                 openai_get_tokens(stream)
         ):
@@ -81,7 +80,7 @@ class LLAMA3Agent(RespondAgent[LLAMA3AgentConfig]):
         parameters = self.get_chat_parameters(messages, ignore_assert=True)
         parameters["stream"] = False
         self.logger.info('Attempting create response for the first message.')
-        chat_completion = await openai.ChatCompletion.acreate(**parameters)
+        chat_completion = await self.client.chat.completions.create(**parameters)
         return chat_completion.choices[0].message.content
 
     def attach_transcript(self, transcript: Transcript):
@@ -104,7 +103,7 @@ class LLAMA3Agent(RespondAgent[LLAMA3AgentConfig]):
             text = self.first_response
         else:
             chat_parameters = self.get_chat_parameters()
-            chat_completion = await openai.ChatCompletion.acreate(**chat_parameters)
+            chat_completion = await self.client.chat.completions.create(**chat_parameters)
             text = chat_completion.choices[0].message.content
         self.logger.debug(f"LLM response: {text}")
         return text, False
@@ -122,7 +121,7 @@ class LLAMA3Agent(RespondAgent[LLAMA3AgentConfig]):
         chat_parameters["stream"] = True
 
         self.logger.info('Attempting to stream response.')
-        stream = await openai.ChatCompletion.acreate(**chat_parameters)
+        stream = await self.client.chat.completions.create(**chat_parameters)
         async for message in llama3_collate_response_async(
                 openai_get_tokens(stream)
         ):

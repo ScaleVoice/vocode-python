@@ -14,7 +14,6 @@ from typing import (
     Union,
 )
 
-from openai.openai_object import OpenAIObject
 from vocode.streaming.models.actions import FunctionCall, FunctionFragment
 from vocode.streaming.models.events import Sender
 from vocode.streaming.models.transcript import (
@@ -125,6 +124,7 @@ async def openai_get_tokens(gen) -> AsyncGenerator[Union[str, FunctionFragment],
         if "content" in delta and delta["content"] is not None:
             token = delta["content"]
             yield token
+        # TODO: use tool_calls instead of function_call
         elif "function_call" in delta and delta["function_call"] is not None:
             yield FunctionFragment(
                 name=delta["function_call"]["name"]

@@ -50,6 +50,9 @@ class LLMAgent(RespondAgent[LLMAgentConfig]):
             max_tokens=self.agent_config.max_tokens,
             openai_api_key=openai_api_key,
         )
+        self.openai_client = openai.AsyncOpenAI(
+            api_key=openai_api_key,
+        )
         self.stop_tokens = [f"{recipient}:"]
         self.first_response = (
             self.llm(
@@ -101,7 +104,7 @@ class LLMAgent(RespondAgent[LLMAgentConfig]):
         return response, False
 
     async def _stream_sentences(self, prompt):
-        stream = await openai.Completion.acreate(
+        stream = await self.openai_client.completions.create(
             prompt=prompt,
             max_tokens=self.agent_config.max_tokens,
             temperature=self.agent_config.temperature,
